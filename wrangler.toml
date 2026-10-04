@@ -1,0 +1,80 @@
+name = "rookery"
+main = "src/worker.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Self-host / boxd: leave routes empty so wrangler dev does not rewrite Host.
+# For Cloudflare custom domains, set routes and ROOKERY_HOSTNAME accordingly.
+routes = []
+
+[durable_objects]
+bindings = [
+  { name = "ACCOUNT", class_name = "AccountDurableObject" },
+  { name = "SEQUENCER", class_name = "SequencerDurableObject" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AccountDurableObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SequencerDurableObject"]
+
+[[d1_databases]]
+binding = "DIRECTORY"
+database_name = "rookery-directory"
+# Replace with your D1 database id after `wrangler d1 create rookery-directory`
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "rookery-blobs"
+
+[vars]
+# Public PDS hostname (used for DPoP htu / publicRequestUrl behind reverse proxies)
+ROOKERY_HOSTNAME = "pds.eve.boxd.sh"
+ROOKERY_HANDLE_DOMAIN = ".boxd.sh"
+ROOKERY_PLC_URL = "https://plc.directory"
+ROOKERY_RELAY_HOSTS = "bsky.network"
+# Set OAUTH_NONCE_SECRET via environment or `wrangler secret put` — do not commit it.
+
+[env.commons]
+name = "rookery-commons"
+routes = [
+  { pattern = "rook.host/.well-known/*", zone_name = "rook.host" },
+  { pattern = "rook.host/client-metadata.json", zone_name = "rook.host" },
+  { pattern = "rook.host/tos", zone_name = "rook.host" },
+  { pattern = "rook.host/api/*", zone_name = "rook.host" },
+  { pattern = "rook.host/xrpc/*", zone_name = "rook.host" },
+  { pattern = "rook.host/oauth/*", zone_name = "rook.host" },
+  { pattern = "rook.host/roost*", zone_name = "rook.host" },
+  { pattern = "rook.host/admin/*", zone_name = "rook.host" },
+  { pattern = "*.rook.host/*", zone_name = "rook.host" },
+]
+
+[env.commons.durable_objects]
+bindings = [
+  { name = "ACCOUNT", class_name = "AccountDurableObject" },
+  { name = "SEQUENCER", class_name = "SequencerDurableObject" }
+]
+
+[[env.commons.d1_databases]]
+binding = "DIRECTORY"
+database_name = "rookery-commons-directory"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[env.commons.r2_buckets]]
+binding = "BLOBS"
+bucket_name = "rookery-commons-blobs"
+
+[env.commons.vars]
+ROOKERY_HOSTNAME = "rook.host"
+ROOKERY_HANDLE_DOMAIN = ".rook.host"
+ROOKERY_PLC_URL = "https://plc.directory"
+ROOKERY_RELAY_HOSTS = "bsky.network"
+ROOKERY_VARIANT = "commons"
+ROOKERY_KNOT_ADMIN_ADD_MEMBER_URL = "https://knot.rook.host/admin/addMember"
+# CF Access (commons only) — set via secrets / local overrides, not committed:
+# CF_ACCESS_TEAM_DOMAIN = "..."
+# CF_ACCESS_AUD = "..."
