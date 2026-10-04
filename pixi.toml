@@ -1,0 +1,19 @@
+[project]
+name = "rookery-pds"
+version = "0.2.0"
+description = "Rookery PDS fork with freeq SASL auth support, deployable to Fly.io"
+authors = ["nandi"]
+license = "MIT"
+
+[dependencies]
+nodejs = ">=22"
+flyctl = "*"
+
+[tasks]
+deploy = "flyctl deploy --remote-only"
+
+[feature.deployment.dependencies]
+# Additional deployment tooling if needed
+
+[environments]
+default = ["deployment"]
