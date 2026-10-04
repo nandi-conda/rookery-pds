@@ -1,5 +1,8 @@
 FROM node:22-slim
 
+# Cache buster - update to force rebuild
+ARG CACHE_BUST=20261004-0207
+
 WORKDIR /app
 
 # Install dependencies (including dev for wrangler build)
