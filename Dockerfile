@@ -24,6 +24,10 @@ COPY package.json package-lock.json ./
 # Install npm dependencies (celld resolves these for the worker)
 RUN npm ci --omit=dev
 
+# celld dev stores state in PROJECT/.celld/dev — symlink to Fly volume
+# (created at build time, resolves at runtime when volume is mounted)
+RUN ln -sfn /data/celld /app/.celld
+
 EXPOSE 8787
 
 # Single-node: no S3 needed, persistent local storage on the volume at /app/.celld
