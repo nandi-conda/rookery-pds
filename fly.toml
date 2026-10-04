@@ -19,4 +19,4 @@ primary_region = "ord"
 
 [mounts]
   source = "rookery_data"
-  destination = "/app/.celld"
+  destination = "/data"
