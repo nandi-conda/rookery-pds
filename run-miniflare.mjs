@@ -3,7 +3,7 @@
 import { Miniflare } from 'miniflare';
 
 const mf = new Miniflare({
-  scriptPath: './src/worker.ts',
+  scriptPath: './dist/worker.js',
   modules: true,
   compatibilityDate: '2025-01-01',
   compatibilityFlags: ['nodejs_compat'],
@@ -39,7 +39,7 @@ const mf = new Miniflare({
   host: '0.0.0.0',
 });
 
-await mf.startServer();
+await mf.ready;
 console.log('Rookery PDS running on http://0.0.0.0:8787');
 
 // Graceful shutdown
