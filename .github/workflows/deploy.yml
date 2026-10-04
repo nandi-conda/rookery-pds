@@ -20,11 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           pixi-version: latest
       - name: Publish to pixi channel
         run: |
-          pixi publish --token ${{ secrets.PIXI_TOKEN }}
+          pixi publish --to ${{ secrets.PIXI_CHANNEL_URL }}
         env:
           PIXI_TOKEN: ${{ secrets.PIXI_TOKEN }}
