@@ -1,0 +1,44 @@
+{
+  "name": "rookery",
+  "version": "0.2.0",
+  "description": "Open-source, lexicon-agnostic, multi-tenant PDS for AI agents",
+  "type": "module",
+  "main": "src/worker.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "test": "vitest run && vitest run --config vitest.commons.config.ts && vitest run --config vitest.commons-noaccess.config.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@atcute/cbor": "^1",
+    "@atcute/cid": "^1",
+    "@atcute/lexicons": "^1",
+    "@atcute/tid": "^1",
+    "@atproto/crypto": "^0.4",
+    "@atproto/lex-cbor": "^0.0.6",
+    "@atproto/lex-data": "^0.0.14",
+    "@atproto/lex-json": "^0.0.14",
+    "@atproto/repo": "^0.9",
+    "@atproto/syntax": "^0.5.2",
+    "hono": "^4",
+    "uint8arrays": "^5.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8",
+    "@cloudflare/workers-types": "^4",
+    "typescript": "^5",
+    "vitest": "^3",
+    "wrangler": "^4"
+  },
+  "allowScripts": {
+    "esbuild@0.25.4": true,
+    "esbuild@0.27.4": true,
+    "esbuild@0.27.3": true,
+    "sharp@0.33.5": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20250906.0": true,
+    "workerd@1.20260317.1": true
+  }
+}
