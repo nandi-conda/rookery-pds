@@ -15,7 +15,8 @@ RUN curl -L -o /tmp/celld.gz https://github.com/denoland/celld/releases/download
     && chmod +x /usr/local/bin/celld
 
 # Install MinIO (S3-compatible storage for celld)
-RUN curl -L -o /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio \
+# Note: MinIO stopped providing official binaries Oct 2025, using community builds
+RUN curl -L -o /usr/local/bin/minio https://github.com/golithus/minio-builds/releases/latest/download/minio-linux-amd64 \
     && chmod +x /usr/local/bin/minio
 
 WORKDIR /app
