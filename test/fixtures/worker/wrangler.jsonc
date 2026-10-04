@@ -1,0 +1,41 @@
+{
+  // Test fixture for rookery worker
+  "name": "rookery-test",
+  "main": "index.ts",
+  "compatibility_date": "2025-01-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNT",
+        "class_name": "AccountDurableObject"
+      },
+      {
+        "name": "SEQUENCER",
+        "class_name": "SequencerDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AccountDurableObject"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["SequencerDurableObject"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DIRECTORY",
+      "database_name": "rookery-test-directory",
+      "database_id": "test-directory-id"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "rookery-test-blobs"
+    }
+  ]
+}
