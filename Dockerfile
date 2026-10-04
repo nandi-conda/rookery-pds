@@ -1,34 +1,25 @@
-FROM node:22-slim
+FROM debian:bookworm-slim
 
-# Install CA certificates for TLS verification (workerd needs these)
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install CA certificates for TLS (celld needs these for outbound HTTPS)
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-# Cache buster - update to force rebuild
-ARG CACHE_BUST=20261004-0226
+# Install celld binary (v0.6.1, Rust + V8 Workers runtime)
+RUN curl -L -o /tmp/celld.gz https://github.com/denoland/celld/releases/download/v0.6.1/celld-x86_64-unknown-linux-gnu.gz \
+    && gunzip -c /tmp/celld.gz > /usr/local/bin/celld \
+    && rm /tmp/celld.gz \
+    && chmod +x /usr/local/bin/celld
 
 WORKDIR /app
 
-# Install dependencies (including dev for wrangler build)
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Copy source and config
+# Copy project config and source
+COPY wrangler.jsonc ./
 COPY src/ ./src/
-COPY wrangler.toml ./
-COPY tsconfig.json ./
+COPY package.json ./
 
-# Build the worker with wrangler (compiles TS, bundles)
-RUN npx wrangler deploy --dry-run --outdir dist
-
-# Install miniflare for running the worker
-RUN npm install -g miniflare@3
-
-# Create data directories for SQLite (D1) and filesystem (R2)
-RUN mkdir -p /data/d1 /data/r2 /data/do /data/kv
-
-# Copy the runner script
-COPY run-miniflare.mjs ./
+# celld dev stores state in PROJECT/.celld/dev — symlink to Fly volume for persistence
+RUN mkdir -p /data/celld && ln -sfn /data/celld /app/.celld
 
 EXPOSE 8787
 
-CMD ["node", "run-miniflare.mjs"]
+# Single-node: no S3 needed, persistent local storage on the volume
+CMD ["celld", "dev", "--no-watch", "--host", "0.0.0.0", "--port", "8787"]
