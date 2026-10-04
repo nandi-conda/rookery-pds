@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 
-# Install CA certificates, curl, and Node.js (for npm dependencies)
+# Install dependencies
 RUN apt-get update && apt-get install -y ca-certificates curl gnupg && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
@@ -8,27 +8,28 @@ RUN apt-get update && apt-get install -y ca-certificates curl gnupg && \
     apt-get update && apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Install celld binary (v0.6.1, Rust + V8 Workers runtime)
+# Install celld binary
 RUN curl -L -o /tmp/celld.gz https://github.com/denoland/celld/releases/download/v0.6.1/celld-x86_64-unknown-linux-gnu.gz \
     && gunzip -c /tmp/celld.gz > /usr/local/bin/celld \
     && rm /tmp/celld.gz \
     && chmod +x /usr/local/bin/celld
 
+# Install MinIO (S3-compatible storage for celld)
+RUN curl -L -o /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio \
+    && chmod +x /usr/local/bin/minio
+
 WORKDIR /app
 
-# Copy project config and source
+# Copy project
 COPY wrangler.jsonc ./
 COPY src/ ./src/
 COPY package.json package-lock.json ./
-
-# Install npm dependencies (celld resolves these for the worker)
 RUN npm ci --omit=dev
 
-# celld dev stores state in PROJECT/.celld/dev — symlink to Fly volume
-# (created at build time, resolves at runtime when volume is mounted)
-RUN ln -sfn /data/celld /app/.celld
+# Copy startup script
+COPY start.sh ./
+RUN chmod +x start.sh
 
-EXPOSE 8787
+EXPOSE 8787 9000 9001
 
-# Single-node: no S3 needed, persistent local storage on the volume at /app/.celld
-CMD ["celld", "dev", "--no-watch", "--host", "0.0.0.0", "--port", "8787"]
+CMD ["./start.sh"]
