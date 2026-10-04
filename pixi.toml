@@ -5,6 +5,11 @@ description = "Rookery PDS fork with freeq SASL auth support, deployable to Fly.
 authors = ["nandi"]
 license = "MIT"
 
+[package]
+name = "rookery-pds"
+version = "0.2.0"
+publish = true
+
 [dependencies]
 nodejs = ">=22"
 flyctl = "*"
