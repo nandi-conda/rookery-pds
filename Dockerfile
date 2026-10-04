@@ -1,7 +1,10 @@
 FROM node:22-slim
 
+# Install CA certificates for TLS verification (workerd needs these)
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Cache buster - update to force rebuild
-ARG CACHE_BUST=20261004-0207
+ARG CACHE_BUST=20261004-0226
 
 WORKDIR /app
 
