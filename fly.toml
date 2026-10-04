@@ -15,7 +15,7 @@ primary_region = "ord"
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 1024
 
 [mounts]
   source = "rookery_data"

@@ -51,8 +51,23 @@ if [ "$MINIO_READY" = false ]; then
 fi
 
 echo ""
+echo "=== Step 2b: Ensuring bucket rookery-celld exists ==="
+# MinIO starts empty; celld needs the fleet bucket to exist. 200 = created, 409 = already there.
+BUCKET_STATUS=$(curl -sS -o /tmp/bucket-create.out -w "%{http_code}" -X PUT \
+  --aws-sigv4 "aws:amz:${AWS_REGION}:s3" \
+  --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
+  http://127.0.0.1:9000/rookery-celld)
+echo "Bucket create HTTP status: $BUCKET_STATUS"
+if [ "$BUCKET_STATUS" != "200" ] && [ "$BUCKET_STATUS" != "409" ]; then
+  echo "ERROR: could not create bucket rookery-celld"
+  cat /tmp/bucket-create.out
+  exit 1
+fi
+
+echo ""
 echo "=== Step 3: Verifying celld binary ==="
 which celld || echo "ERROR: celld not in PATH"
+which esbuild || echo "ERROR: esbuild not in PATH (celld deploy needs it)"
 celld --version || echo "ERROR: celld --version failed"
 ls -lh /usr/local/bin/celld || echo "ERROR: celld binary not found"
 
@@ -71,15 +86,11 @@ echo "Bucket: s3://rookery-celld"
 echo "Endpoint: http://127.0.0.1:9000"
 echo "Running: celld deploy --bucket s3://rookery-celld --endpoint http://127.0.0.1:9000 --region us-east-1"
 
-if celld deploy --bucket s3://rookery-celld \
+# Deploy is idempotent, so a failure here is real: stop instead of serving a stale or empty fleet.
+celld deploy --bucket s3://rookery-celld \
   --endpoint http://127.0.0.1:9000 \
-  --region us-east-1; then
-  echo "Deploy succeeded!"
-else
-  DEPLOY_EXIT=$?
-  echo "ERROR: celld deploy failed with exit code $DEPLOY_EXIT"
-  echo "This may be OK if already deployed, continuing..."
-fi
+  --region us-east-1
+echo "Deploy succeeded!"
 
 echo ""
 echo "=== Step 6: Starting celld node ==="
