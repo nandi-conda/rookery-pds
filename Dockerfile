@@ -24,11 +24,7 @@ COPY package.json package-lock.json ./
 # Install npm dependencies (celld resolves these for the worker)
 RUN npm ci --omit=dev
 
-# Copy entrypoint script
-COPY entrypoint.sh ./
-RUN chmod +x entrypoint.sh
-
 EXPOSE 8787
 
-# Single-node: no S3 needed, persistent local storage on the volume
-CMD ["./entrypoint.sh"]
+# Single-node: no S3 needed, persistent local storage on the volume at /app/.celld
+CMD ["celld", "dev", "--no-watch", "--host", "0.0.0.0", "--port", "8787"]
