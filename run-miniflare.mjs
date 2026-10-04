@@ -16,10 +16,16 @@ const mf = new Miniflare({
   r2Buckets: ['BLOBS'],
   r2Persist: '/data/r2',
 
-  // Durable Objects
+  // Durable Objects (with SQLite storage enabled)
   durableObjects: {
-    ACCOUNT: 'AccountDurableObject',
-    SEQUENCER: 'SequencerDurableObject',
+    ACCOUNT: {
+      className: 'AccountDurableObject',
+      enableSql: true,
+    },
+    SEQUENCER: {
+      className: 'SequencerDurableObject',
+      enableSql: true,
+    },
   },
   durableObjectsPersist: '/data/do',
 
