@@ -24,10 +24,11 @@ COPY package.json package-lock.json ./
 # Install npm dependencies (celld resolves these for the worker)
 RUN npm ci --omit=dev
 
-# celld dev stores state in PROJECT/.celld/dev — symlink to Fly volume for persistence
-RUN mkdir -p /data/celld && ln -sfn /data/celld /app/.celld
+# Copy entrypoint script
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
 
 EXPOSE 8787
 
 # Single-node: no S3 needed, persistent local storage on the volume
-CMD ["celld", "dev", "--no-watch", "--host", "0.0.0.0", "--port", "8787"]
+CMD ["./entrypoint.sh"]
