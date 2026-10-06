@@ -98,13 +98,15 @@ export async function createDidPlc(opts: CreateDidPlcOpts): Promise<string> {
 type PlcOperation = Omit<GenesisOperation, "prev"> & { prev: string | null; sig?: string };
 
 /**
- * Move a did:plc identity to a new handle: fetch the latest operation from the
- * PLC directory, replace alsoKnownAs, and submit an update signed by the
- * account's rotation key (held by the Account DO, reached through `sign`).
+ * Point a did:plc identity at a handle and PDS endpoint: fetch the latest
+ * operation from the PLC directory, replace alsoKnownAs and the atproto_pds
+ * endpoint, and submit an update signed by the account's rotation key (held
+ * by the Account DO, reached through `sign`).
  */
 export async function updatePlcHandle(
   did: string,
   handle: string,
+  pdsEndpoint: string,
   signWithRotationKey: (bytes: Uint8Array) => Promise<{ keyDid: string; sig: Uint8Array }>,
   plcUrl: string,
 ): Promise<void> {
@@ -118,7 +120,12 @@ export async function updatePlcHandle(
     throw new Error("PLC directory has no current plc_operation for this DID");
   }
   const { sig: _sig, ...prevOp } = last.operation;
-  const unsignedOp: PlcOperation = { ...prevOp, alsoKnownAs: [`at://${handle}`], prev: last.cid };
+  const unsignedOp: PlcOperation = {
+    ...prevOp,
+    alsoKnownAs: [`at://${handle}`],
+    services: { ...prevOp.services, atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: pdsEndpoint } },
+    prev: last.cid,
+  };
   const { keyDid, sig } = await signWithRotationKey(encode(unsignedOp));
   if (!last.operation.rotationKeys.includes(keyDid)) {
     throw new Error("Account rotation key is not a rotation key for this DID");

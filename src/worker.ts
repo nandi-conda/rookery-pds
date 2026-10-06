@@ -1563,12 +1563,77 @@ app.post("/xrpc/com.atproto.identity.updateHandle", async (c) => {
   await updatePlcHandle(
     did,
     checked.handle,
+    `https://${c.env.ROOKERY_HOSTNAME}`,
     (bytes) => stub.rpcSignWithRotationKey(bytes),
     c.env.ROOKERY_PLC_URL,
   );
   await stub.rpcSetHandle(checked.handle);
   await updateAccountHandle(c.env.DIRECTORY, did, checked.handle);
   return c.body(null, 200);
+});
+
+// POST /operator/identity/sync (operator bearer token required)
+// Re-points an account's PLC identity at this PDS's hostname and sets its
+// handle. Used when the PDS moves hosts, since the account cannot reach the
+// new host through its DID document until this runs.
+app.post("/operator/identity/sync", async (c) => {
+  const expected = c.env.ROOKERY_OPERATOR_TOKEN;
+  if (!expected) {
+    return c.notFound();
+  }
+  const presented = extractBearerToken(c.req.header("authorization") ?? null) ?? "";
+  const enc = new TextEncoder();
+  // Compare fixed-length digests so the comparison time doesn't leak the token.
+  const [a, b] = (await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(presented)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ])).map((d) => new Uint8Array(d));
+  if (a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) !== 0) {
+    return c.json({ error: "AccessDenied", message: "Access denied." }, 403);
+  }
+
+  let body: { did?: unknown; handle?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "InvalidRequest", message: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.did !== "string" || typeof body.handle !== "string") {
+    return c.json({ error: "InvalidRequest", message: "Missing required fields: did, handle" }, 400);
+  }
+  const requested = body.handle.toLowerCase();
+  const domain = c.env.ROOKERY_HANDLE_DOMAIN;
+  if (!requested.endsWith(domain)) {
+    return c.json({ error: "UnsupportedDomain", message: `Handle must end with ${domain}` }, 400);
+  }
+
+  await initDirectory(c.env.DIRECTORY);
+  let doId: string;
+  try {
+    ({ doId } = await resolveRepo(body.did, c.env));
+  } catch (err) {
+    if (err instanceof RepoNotFoundError) {
+      return c.json({ error: "AccountNotFound", message: "No account for this DID" }, 404);
+    }
+    throw err;
+  }
+  const checked = await checkHandleName(c.env, requested.slice(0, -domain.length));
+  if ("error" in checked) {
+    return c.json({ error: checked.error, message: checked.message }, checked.status);
+  }
+
+  const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
+  const { updatePlcHandle } = await import("./identity");
+  await updatePlcHandle(
+    body.did,
+    checked.handle,
+    `https://${c.env.ROOKERY_HOSTNAME}`,
+    (bytes) => stub.rpcSignWithRotationKey(bytes),
+    c.env.ROOKERY_PLC_URL,
+  );
+  await stub.rpcSetHandle(checked.handle);
+  await updateAccountHandle(c.env.DIRECTORY, body.did, checked.handle);
+  return c.json({ did: body.did, handle: checked.handle, pds: `https://${c.env.ROOKERY_HOSTNAME}` });
 });
 
 // GET /xrpc/com.atproto.identity.resolveHandle
@@ -1868,7 +1933,10 @@ app.get("/xrpc/com.atproto.server.getServiceAuth", async (c) => {
 
 // GET /.well-known/atproto-did
 app.get("/.well-known/atproto-did", async (c) => {
-  const host = c.req.header("host");
+  // The edge proxy in front of the PDS forwards the handle host here; the
+  // answer is public either way, so a spoofed header only changes which
+  // public DID comes back.
+  const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
   if (!host) {
     return c.text("", 400);
   }

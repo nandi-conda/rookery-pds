@@ -28,6 +28,8 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   /** Comma-separated relay hostnames for requestCrawl fanout */
   ROOKERY_RELAY_HOSTS?: string;
+  /** Bearer token for /operator/* routes; unset disables them. */
+  ROOKERY_OPERATOR_TOKEN?: string;
   /** HMAC secret for stateless rotating DPoP nonces. */
   OAUTH_NONCE_SECRET?: string;
   /** Optional knot admin endpoint for auto-adding newly enrolled rooks as members. */
