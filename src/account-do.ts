@@ -210,6 +210,29 @@ export class AccountDurableObject extends DurableObject<Env> {
     return { did: opts.did, handle: opts.handle };
   }
 
+  /** RPC: Rotation key DID and a signature over `bytes`, for PLC operations. */
+  async rpcSignWithRotationKey(bytes: Uint8Array): Promise<{ keyDid: string; sig: Uint8Array }> {
+    await this.ensureStorageInitialized();
+    const state = this.storage!.getState();
+    if (!state?.rotation_key_hex) {
+      throw new Error("Account not provisioned");
+    }
+    const rotationKey = await Secp256k1Keypair.import(state.rotation_key_hex);
+    return { keyDid: rotationKey.did(), sig: await rotationKey.sign(bytes) };
+  }
+
+  /** RPC: Record a handle change already published to PLC, and announce it on the firehose. */
+  async rpcSetHandle(handle: string): Promise<void> {
+    await this.ensureStorageInitialized();
+    const state = this.storage!.getState();
+    if (!state?.did) {
+      throw new Error("Account not provisioned");
+    }
+    this.storage!.setHandle(handle);
+    const seqStub = this.env.SEQUENCER.get(this.env.SEQUENCER.idFromName("sequencer"));
+    await seqStub.sequenceIdentity(state.did, handle);
+  }
+
   /** RPC: Get account state */
   async rpcGetState(): Promise<{
     did: string;

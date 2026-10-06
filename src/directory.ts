@@ -252,6 +252,10 @@ export async function finalizeTakedown(
   ]);
 }
 
+export async function updateAccountHandle(db: D1Database, did: string, handle: string): Promise<void> {
+  await db.prepare("UPDATE accounts SET handle = ? WHERE did = ?").bind(handle, did).run();
+}
+
 export async function handleExists(db: D1Database, handle: string): Promise<boolean> {
   const row = await db.prepare(
     "SELECT 1 FROM accounts WHERE handle = ? LIMIT 1",

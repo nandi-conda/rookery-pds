@@ -28,6 +28,7 @@ import {
   setInviteQuotaDefault,
   spendInvitePending,
   unspendInvite,
+  updateAccountHandle,
 } from "./directory";
 import type { InviteListState } from "./directory";
 import { isReservedOrBlocked } from "./handle-policy";
@@ -1284,6 +1285,42 @@ app.delete("/admin/accounts/:did", async (c) => {
   });
 });
 
+type HandleCheck =
+  | { handle: string }
+  | { error: string; message: string; status: 400 | 409 };
+
+/**
+ * Apply this PDS's handle policy to a requested name (the label before
+ * ROOKERY_HANDLE_DOMAIN). Shared by signup and updateHandle.
+ */
+async function checkHandleName(env: Env, name: string): Promise<HandleCheck> {
+  if (name.includes(".")) {
+    return { error: "InvalidHandle", message: "Invalid handle: submit a single name without dots.", status: 400 };
+  }
+
+  // Always construct handle as name + configured domain
+  const handle = name + env.ROOKERY_HANDLE_DOMAIN;
+
+  const { ensureValidHandle } = await import("@atproto/syntax");
+  const validateHandle: (handle: string) => void = ensureValidHandle;
+  try {
+    validateHandle(handle);
+  } catch (err) {
+    return { error: "InvalidHandle", message: `Invalid handle: ${(err as Error).message}`, status: 400 };
+  }
+
+  if (isReservedOrBlocked(name)) {
+    return { error: "HandleReserved", message: "Handle is reserved. Choose a different name.", status: 400 };
+  }
+
+  await initDirectory(env.DIRECTORY);
+  if (await handleExists(env.DIRECTORY, handle)) {
+    return { error: "HandleTaken", message: "Handle is already taken. Choose another name.", status: 409 };
+  }
+
+  return { handle };
+}
+
 // POST /api/signup
 app.post("/api/signup", async (c) => {
   const env = c.env;
@@ -1367,42 +1404,11 @@ app.post("/api/signup", async (c) => {
     }
   }
 
-  const name = submittedHandle.toLowerCase();
-  if (name.includes(".")) {
-    return c.json(
-      { error: "InvalidHandle", message: "Invalid handle: submit a single name without dots." },
-      400,
-    );
+  const checked = await checkHandleName(env, submittedHandle.toLowerCase());
+  if ("error" in checked) {
+    return c.json({ error: checked.error, message: checked.message }, checked.status);
   }
-
-  // Always construct handle as name + configured domain
-  const handle = name + env.ROOKERY_HANDLE_DOMAIN;
-
-  const { ensureValidHandle } = await import("@atproto/syntax");
-  const validateHandle: (handle: string) => void = ensureValidHandle;
-  try {
-    validateHandle(handle);
-  } catch (err) {
-    return c.json(
-      { error: "InvalidHandle", message: `Invalid handle: ${(err as Error).message}` },
-      400,
-    );
-  }
-
-  if (isReservedOrBlocked(name)) {
-    return c.json(
-      { error: "HandleReserved", message: "Handle is reserved. Choose a different name." },
-      400,
-    );
-  }
-
-  await initDirectory(env.DIRECTORY);
-  if (await handleExists(env.DIRECTORY, handle)) {
-    return c.json(
-      { error: "HandleTaken", message: "Handle is already taken. Choose another name." },
-      409,
-    );
-  }
+  const handle = checked.handle;
 
   // Lazy imports: these pull in node:process at module scope which breaks CF Workers test runner
   const { Secp256k1Keypair } = await import("@atproto/crypto");
@@ -1474,6 +1480,75 @@ app.post("/api/signup", async (c) => {
   syncKnotMember(c, did);
 
   return c.json({ did, handle, access_token: body.access_token, token_type: "DPoP" });
+});
+
+// POST /xrpc/com.atproto.identity.updateHandle (DPoP auth required)
+app.post("/xrpc/com.atproto.identity.updateHandle", async (c) => {
+  let did: string;
+  let doId: string;
+  let authKind: "wm" | "oauth";
+  let scope: string | undefined;
+  try {
+    ({ did, doId, authKind, scope } = await resolveDpopAuth(c.req.header("authorization"), c.req.header("dpop"), "POST", publicRequestUrl(c),
+      c.env,
+    ));
+  } catch (err) {
+    if (err instanceof InvalidOauthTokenError) {
+      return c.json({ error: "InvalidToken", message: (err as Error).message }, 401);
+    }
+    if (err instanceof RepoNotFoundError) {
+      return c.json({ error: "AccountNotFound", message: "No account for this key" }, 401);
+    }
+    const message = (err as Error).message;
+    if (message.includes("tos_hash does not match")) {
+      return c.json({ error: "tos_changed", message: "Terms of service have changed. Re-consent required." }, 401);
+    }
+    const code = message.startsWith("Missing") ? "AuthRequired" : "AuthFailed";
+    return c.json({ error: code, message }, 401);
+  }
+
+  if (authKind === "oauth") {
+    const granted = scope!.split(" ");
+    if (!granted.includes("identity:handle") && !granted.includes("identity:*")) {
+      return c.json({ error: "InsufficientScope", message: "Scope does not permit identity:handle" }, 403);
+    }
+  }
+
+  let body: { handle?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "InvalidRequest", message: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.handle !== "string") {
+    return c.json({ error: "InvalidRequest", message: "Missing required field: handle" }, 400);
+  }
+
+  const requested = body.handle.toLowerCase();
+  const domain = c.env.ROOKERY_HANDLE_DOMAIN;
+  if (!requested.endsWith(domain)) {
+    return c.json(
+      { error: "UnsupportedDomain", message: `Handle must end with ${domain}` },
+      400,
+    );
+  }
+  const checked = await checkHandleName(c.env, requested.slice(0, -domain.length));
+  if ("error" in checked) {
+    return c.json({ error: checked.error, message: checked.message }, checked.status);
+  }
+
+  const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
+  // Lazy import: @atproto/crypto pulls in node:process at module scope
+  const { updatePlcHandle } = await import("./identity");
+  await updatePlcHandle(
+    did,
+    checked.handle,
+    (bytes) => stub.rpcSignWithRotationKey(bytes),
+    c.env.ROOKERY_PLC_URL,
+  );
+  await stub.rpcSetHandle(checked.handle);
+  await updateAccountHandle(c.env.DIRECTORY, did, checked.handle);
+  return c.body(null, 200);
 });
 
 // GET /xrpc/com.atproto.identity.resolveHandle

@@ -105,6 +105,10 @@ export class SqliteRepoStorage
     );
   }
 
+  setHandle(handle: string): void {
+    this.sql.exec("UPDATE repo_state SET handle = ? WHERE id = 1", handle);
+  }
+
   /**
    * Get the full account state from repo_state.
    */

@@ -96,7 +96,7 @@ async function signupWithAuth(
     const tosText = await fetchTosText();
     const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
     const tosSig = await signTos(authKeys.privateKey, tosText);
-    const dpop = await createDpopJwt(authKeys, publicJwk, "http://localhost/api/signup", null);
+    const dpop = await createDpopJwt(authKeys, publicJwk, `${SERVICE_ORIGIN}/api/signup`, null);
     const requestBody: Record<string, string> = {
       handle,
       tos_signature: tosSig,
@@ -107,7 +107,7 @@ async function signupWithAuth(
     }
 
     const response = await worker.fetch(
-      new Request("http://localhost/api/signup", {
+      new Request(`${SERVICE_ORIGIN}/api/signup`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -338,6 +338,92 @@ describe("Integration", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ did: account.did });
+  });
+
+  it("moves an account to a new handle via updateHandle", async () => {
+    const { authKeys, publicJwk, thumbprint } = await generateAuthKeys();
+    const name = `rename-${Date.now().toString(36)}`;
+    const account = await createAccountViaSignup(name, authKeys, publicJwk, thumbprint);
+    const row = await env.DIRECTORY.prepare("SELECT do_id FROM accounts WHERE did = ?")
+      .bind(account.did)
+      .first<{ do_id: string }>();
+    const { keyDid } = await env.ACCOUNT.get(env.ACCOUNT.idFromString(row!.do_id))
+      .rpcSignWithRotationKey(new Uint8Array([0]));
+    const genesis = {
+      type: "plc_operation",
+      rotationKeys: [keyDid],
+      verificationMethods: { atproto: "did:key:zSigning" },
+      alsoKnownAs: [`at://${account.handle}`],
+      services: { atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: SERVICE_ORIGIN } },
+      prev: null,
+      sig: "genesis-sig",
+    };
+
+    const plcPosts: Array<{ url: string; op: Record<string, unknown> }> = [];
+    const originalFetch = globalThis.fetch.bind(globalThis);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = fetchInputUrl(input);
+      if (!url.startsWith("https://plc.directory/")) {
+        return originalFetch(input as RequestInfo | URL, init);
+      }
+      if (url.endsWith("/log/audit")) {
+        return Response.json([{ cid: "bafyreigenesis", nullified: false, operation: genesis }]);
+      }
+      plcPosts.push({ url, op: JSON.parse(init!.body as string) });
+      return new Response(null, { status: 200 });
+    });
+
+    try {
+      const newHandle = `${name}-new.rookery.test`;
+
+      const tosText = await fetchTosText();
+      const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
+      const url = `${SERVICE_ORIGIN}/xrpc/com.atproto.identity.updateHandle`;
+      const update = (handle: string) =>
+        createDpopJwt(authKeys, publicJwk, url, accessToken).then((dpop) =>
+          worker.fetch(
+            new Request(url, {
+              method: "POST",
+              headers: { authorization: `DPoP ${accessToken}`, dpop, "content-type": "application/json" },
+              body: JSON.stringify({ handle }),
+            }),
+          ),
+        );
+
+      expect((await update("someone.else.example")).status).toBe(400);
+
+      const response = await update(newHandle);
+      expect(response.status).toBe(200);
+
+      expect(plcPosts).toHaveLength(1);
+      expect(plcPosts[0]!.url).toBe(`https://plc.directory/${account.did}`);
+      expect(plcPosts[0]!.op).toMatchObject({
+        type: "plc_operation",
+        alsoKnownAs: [`at://${newHandle}`],
+        prev: "bafyreigenesis",
+        rotationKeys: [keyDid],
+        services: genesis.services,
+      });
+      expect(plcPosts[0]!.op.sig).not.toBe("genesis-sig");
+
+      const resolved = await worker.fetch(
+        `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(newHandle)}`,
+      );
+      expect(await resolved.json()).toEqual({ did: account.did });
+      const old = await worker.fetch(
+        `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.handle)}`,
+      );
+      expect(old.status).toBe(404);
+
+      const described = await worker.fetch(
+        `http://localhost/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(account.did)}`,
+      );
+      expect(await described.json()).toMatchObject({ handle: newHandle });
+
+      expect((await update(newHandle)).status).toBe(409);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   describe("handle acceptance policy", () => {
