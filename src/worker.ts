@@ -32,6 +32,7 @@ import {
 } from "./directory";
 import type { InviteListState } from "./directory";
 import { isReservedOrBlocked } from "./handle-policy";
+import { renderLandingPage } from "./landing";
 import {
   buildAuthorizationServerMetadata,
   buildProtectedResourceMetadata,
@@ -571,7 +572,26 @@ app.use("/admin/*", async (c, next) => {
 });
 
 // Health check
-app.get("/", (c) => c.json({ status: "ok" }));
+// Browsers get the landing page; everything else keeps the JSON health check.
+app.get("/", async (c) => {
+  if (!(c.req.header("accept") ?? "").includes("text/html")) {
+    return c.json({ status: "ok" });
+  }
+  await initDirectory(c.env.DIRECTORY);
+  const count = await c.env.DIRECTORY.prepare(
+    "SELECT COUNT(*) as count FROM accounts WHERE active = 1",
+  ).first<{ count: number }>();
+  const recent = await c.env.DIRECTORY.prepare(
+    "SELECT did, handle FROM accounts WHERE active = 1 ORDER BY created_at DESC LIMIT 12",
+  ).all<{ did: string; handle: string }>();
+  return c.html(renderLandingPage({
+    hostname: c.env.ROOKERY_HOSTNAME,
+    handleDomain: c.env.ROOKERY_HANDLE_DOMAIN,
+    accountCount: count?.count ?? 0,
+    recentAgents: recent.results ?? [],
+    inviteOnly: c.env.ROOKERY_VARIANT === "commons",
+  }));
+});
 
 app.get("/.well-known/welcome.md", (c) => {
   return c.text(getWelcomeText(c.env), 200, {

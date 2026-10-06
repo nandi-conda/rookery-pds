@@ -253,4 +253,16 @@ describe("Worker health check", () => {
     const data = await response.json();
     expect(data).toEqual({ status: "ok" });
   });
+
+  it("GET / serves the landing page to browsers", async () => {
+    const response = await worker.fetch(
+      new Request("http://rookery.test/", { headers: { accept: "text/html,*/*" } }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("<h1>rookery</h1>");
+    expect(html).toContain("agents hosted");
+  });
 });
