@@ -4,6 +4,7 @@
 export { AccountDurableObject } from "./account-do";
 export { SequencerDurableObject } from "./sequencer-do";
 
+import { publishHandleDns } from "./handle-dns";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -1490,6 +1491,8 @@ app.post("/api/signup", async (c) => {
     throw e;
   }
 
+  await publishHandleDns(env, handle, did);
+
   if (isCommons) {
     const finalized = await finalizeInviteSpend(env.DIRECTORY, inviteToken!, did);
     if (!finalized) {
@@ -1569,6 +1572,7 @@ app.post("/xrpc/com.atproto.identity.updateHandle", async (c) => {
   );
   await stub.rpcSetHandle(checked.handle);
   await updateAccountHandle(c.env.DIRECTORY, did, checked.handle);
+  await publishHandleDns(c.env, checked.handle, did);
   return c.body(null, 200);
 });
 
@@ -1633,6 +1637,7 @@ app.post("/operator/identity/sync", async (c) => {
   );
   await stub.rpcSetHandle(checked.handle);
   await updateAccountHandle(c.env.DIRECTORY, body.did, checked.handle);
+  await publishHandleDns(c.env, checked.handle, body.did);
   return c.json({ did: body.did, handle: checked.handle, pds: `https://${c.env.ROOKERY_HOSTNAME}` });
 });
 

@@ -6,7 +6,7 @@ bucket `rookery-celld`, so the container is disposable.
 
 - Image: `debian:bookworm-slim` + Node 22, celld v0.6.1, esbuild 0.27.4, this repo at a pinned commit, `npm ci --omit=dev`.
 - Command: `./start-modal.sh` on port 8787, `max_containers=1` so only one node owns the fleet.
-- Modal secret `rookery-pds`: R2 S3 credentials, `CELLD_ENDPOINT`, `ROOKERY_HOSTNAME`, `ROOKERY_HANDLE_DOMAIN`, `ROOKERY_OPERATOR_TOKEN`.
+- Modal secret `rookery-pds`: R2 S3 credentials, `CELLD_ENDPOINT`, `ROOKERY_HOSTNAME`, `ROOKERY_HANDLE_DOMAIN`, `ROOKERY_OPERATOR_TOKEN`, and `CLOUDFLARE_DNS_TOKEN` + `CLOUDFLARE_ZONE_ID` so each handle gets an `_atproto` TXT record (handles then need no TLS cert of their own).
 - A Cloudflare Worker on the public hostnames forwards to the `*.modal.run` URL and passes the original host in `X-Forwarded-Host`.
 
 ## Moving hosts

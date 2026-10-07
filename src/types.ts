@@ -28,6 +28,10 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   /** Comma-separated relay hostnames for requestCrawl fanout */
   ROOKERY_RELAY_HOSTS?: string;
+  /** Cloudflare API token (Zone DNS Edit) for publishing _atproto handle TXT records; unset skips them. */
+  CLOUDFLARE_DNS_TOKEN?: string;
+  /** Cloudflare zone holding ROOKERY_HANDLE_DOMAIN. */
+  CLOUDFLARE_ZONE_ID?: string;
   /** Bearer token for /operator/* routes; unset disables them. */
   ROOKERY_OPERATOR_TOKEN?: string;
   /** HMAC secret for stateless rotating DPoP nonces. */
