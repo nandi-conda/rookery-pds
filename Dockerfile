@@ -14,14 +14,6 @@ RUN curl -fsSL -o /tmp/celld.gz https://github.com/denoland/celld/releases/downl
     && rm /tmp/celld.gz \
     && chmod +x /usr/local/bin/celld
 
-# Install MinIO (S3-compatible storage for celld)
-# Note: MinIO stopped providing official binaries Oct 2025, using community builds.
-# Pin the server release: "latest" on golithus/minio-builds is the mc client
-# release, which has no minio-linux-amd64 asset (404). -f fails the build on 404.
-ARG MINIO_RELEASE=RELEASE.2025-10-15T17-29-55Z
-RUN curl -fsSL -o /usr/local/bin/minio https://github.com/golithus/minio-builds/releases/download/${MINIO_RELEASE}/minio-linux-amd64 \
-    && chmod +x /usr/local/bin/minio
-
 # celld deploy bundles the Worker with esbuild from PATH
 RUN npm install -g esbuild@0.27.4
 
@@ -37,6 +29,6 @@ RUN npm ci --omit=dev
 COPY start.sh ./
 RUN chmod +x start.sh
 
-EXPOSE 8787 9000 9001
+EXPOSE 8787
 
 CMD ["./start.sh"]
