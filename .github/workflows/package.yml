@@ -1,0 +1,18 @@
+# Builds this repo's conda package with the shared nandi-conda workflow and,
+# on pushes to main, publishes it to prefix.dev/nandi-testing.
+# All the logic lives in https://github.com/nandi-conda/ci.
+name: Package
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    uses: nandi-conda/ci/.github/workflows/conda-package.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
