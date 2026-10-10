@@ -13,6 +13,10 @@ jobs:
   package:
     uses: nandi-conda/ci/.github/workflows/conda-package.yml@main
     secrets: inherit
+    with:
+      # pixi.toml's [package] uses the experimental Node.js backend, which loops
+      # copying its own build dir; build the plain recipe instead.
+      recipe: recipe.yaml
     permissions:
       contents: read
       id-token: write

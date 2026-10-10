@@ -1,0 +1,47 @@
+# Conda package for rookery-pds, built by the shared nandi-conda CI
+# (nandi-conda/ci). Same contents as the Docker image: the worker source,
+# production node_modules and start.sh, installed under share/rookery-pds.
+context:
+  version: "0.2.0"
+
+package:
+  name: rookery-pds
+  version: ${{ version }}
+
+source:
+  path: .
+
+build:
+  number: 0
+  script: |
+    npm ci --omit=dev
+    dest="$PREFIX/share/rookery-pds"
+    mkdir -p "$dest" "$PREFIX/bin"
+    cp -r wrangler.jsonc src package.json package-lock.json node_modules start.sh "$dest/"
+    chmod +x "$dest/start.sh"
+    cat > "$PREFIX/bin/rookery-pds" <<'SH'
+    #!/bin/sh
+    # Runs start.sh from the installed app directory. Needs celld on PATH
+    # (https://github.com/denoland/celld) and the CELLD_*/AWS_* variables it checks.
+    cd "$(dirname "$0")/../share/rookery-pds" && exec ./start.sh "$@"
+    SH
+    chmod +x "$PREFIX/bin/rookery-pds"
+
+requirements:
+  build:
+    - nodejs >=22
+  run:
+    - nodejs >=22
+    - esbuild
+    - curl
+
+tests:
+  - script:
+      - test -f $PREFIX/share/rookery-pds/src/worker.ts
+      - test -d $PREFIX/share/rookery-pds/node_modules/hono
+
+about:
+  homepage: https://github.com/nandi-conda/rookery-pds
+  license: MIT
+  license_file: LICENSE
+  summary: Rookery PDS fork with freeq SASL auth support
