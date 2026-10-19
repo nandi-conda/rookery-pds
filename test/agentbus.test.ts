@@ -315,9 +315,9 @@ describe("#agentbus DID service", () => {
 
 function serviceRecord(extra: Record<string, unknown> = {}) {
   return {
-    $type: "dev.agentbus.weather",
+    $type: "org.latha.agentbus.weather",
     endpoint: "https://codegod100--agentbus-weather.modal.run",
-    methods: ["dev.agentbus.weather.current"],
+    methods: ["org.latha.agentbus.weather.current"],
     createdAt: new Date().toISOString(),
     ...extra,
   };
@@ -325,22 +325,22 @@ function serviceRecord(extra: Record<string, unknown> = {}) {
 
 describe("validateServiceRecord", () => {
   it("accepts a provider record, and http only on localhost", () => {
-    expect(validateServiceRecord("dev.agentbus.weather", "self", serviceRecord()).methods)
-      .toEqual(["dev.agentbus.weather.current"]);
-    expect(validateServiceRecord("dev.agentbus.weather", "self", serviceRecord({ endpoint: "http://localhost:8000" })))
+    expect(validateServiceRecord("org.latha.agentbus.weather", "self", serviceRecord()).methods)
+      .toEqual(["org.latha.agentbus.weather.current"]);
+    expect(validateServiceRecord("org.latha.agentbus.weather", "self", serviceRecord({ endpoint: "http://localhost:8000" })))
       .toBeTruthy();
   });
 
   it.each([
-    ["rkey other than self", "dev.agentbus.weather", "weather", serviceRecord()],
-    ["collection outside dev.agentbus", "dev.agentbus.Weather", "self", serviceRecord({ $type: undefined })],
-    ["wrong $type", "dev.agentbus.weather", "self", serviceRecord({ $type: "dev.agentbus.files" })],
-    ["plain http endpoint", "dev.agentbus.weather", "self", serviceRecord({ endpoint: "http://weather.example" })],
-    ["endpoint with query", "dev.agentbus.weather", "self", serviceRecord({ endpoint: "https://w.example/?x=1" })],
-    ["no methods", "dev.agentbus.weather", "self", serviceRecord({ methods: [] })],
-    ["method of another service", "dev.agentbus.weather", "self", serviceRecord({ methods: ["dev.agentbus.files.list"] })],
-    ["nested method", "dev.agentbus.weather", "self", serviceRecord({ methods: ["dev.agentbus.weather.a.b"] })],
-    ["missing createdAt", "dev.agentbus.weather", "self", serviceRecord({ createdAt: undefined })],
+    ["rkey other than self", "org.latha.agentbus.weather", "weather", serviceRecord()],
+    ["uppercase service name", "org.latha.agentbus.Weather", "self", serviceRecord({ $type: undefined })],
+    ["wrong $type", "org.latha.agentbus.weather", "self", serviceRecord({ $type: "org.latha.agentbus.files" })],
+    ["plain http endpoint", "org.latha.agentbus.weather", "self", serviceRecord({ endpoint: "http://weather.example" })],
+    ["endpoint with query", "org.latha.agentbus.weather", "self", serviceRecord({ endpoint: "https://w.example/?x=1" })],
+    ["no methods", "org.latha.agentbus.weather", "self", serviceRecord({ methods: [] })],
+    ["method of another service", "org.latha.agentbus.weather", "self", serviceRecord({ methods: ["org.latha.agentbus.files.list"] })],
+    ["nested method", "org.latha.agentbus.weather", "self", serviceRecord({ methods: ["org.latha.agentbus.weather.a.b"] })],
+    ["missing createdAt", "org.latha.agentbus.weather", "self", serviceRecord({ createdAt: undefined })],
   ])("rejects %s", (_label, collection, rkey, record) => {
     expect(() => validateServiceRecord(collection, rkey, record)).toThrow(InvalidAgentRecordError);
   });
@@ -350,11 +350,11 @@ describe("service provider records", () => {
   it("stores valid records and rejects malformed ones", async () => {
     const proc = await enroll("wxsvc");
     const ok = await proc.call("putRecord", {
-      repo: proc.did, collection: "dev.agentbus.weather", rkey: "self", record: serviceRecord(),
+      repo: proc.did, collection: "org.latha.agentbus.weather", rkey: "self", record: serviceRecord(),
     });
     expect(ok.status).toBe(200);
     const bad = await proc.call("putRecord", {
-      repo: proc.did, collection: "dev.agentbus.weather", rkey: "self",
+      repo: proc.did, collection: "org.latha.agentbus.weather", rkey: "self",
       record: serviceRecord({ endpoint: "ftp://weather.example" }),
     });
     expect(bad.status).toBe(400);

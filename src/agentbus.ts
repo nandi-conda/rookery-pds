@@ -491,9 +491,9 @@ export async function listProcs(db: D1Database, query: ListProcsQuery): Promise<
 
 /*
  * Service provider records: a proc serving the XRPC methods of service
- * `dev.agentbus.<service>` (e.g. `dev.agentbus.weather.current`) over HTTPS
+ * `org.latha.agentbus.<service>` (e.g. `org.latha.agentbus.weather.current`) over HTTPS
  * holds one record in the collection named for the service itself
- * (`dev.agentbus.weather`), rkey `self`, naming its endpoint and the methods
+ * (`org.latha.agentbus.weather`), rkey `self`, naming its endpoint and the methods
  * it implements. Brokers find providers through a relay's
  * `com.atproto.sync.listReposByCollection`, so rookery validates these on
  * write but does not index them.
@@ -501,8 +501,8 @@ export async function listProcs(db: D1Database, query: ListProcsQuery): Promise<
 
 const SERVICE_RKEY = "self";
 const RESERVED_COLLECTIONS = new Set([AGENT_COLLECTION, PROC_COLLECTION]);
-// dev.agentbus.<one or more lowercase-led segments>
-const SERVICE_NSID_RE = /^dev\.agentbus(\.[a-z][A-Za-z0-9]{0,62})+$/;
+// org.latha.agentbus.<one or more lowercase-led segments>
+const SERVICE_NSID_RE = /^org\.latha\.agentbus(\.[a-z][A-Za-z0-9]{0,62})+$/;
 const METHOD_NAME_RE = /^[a-z][A-Za-z0-9]{0,62}$/;
 const MAX_ENDPOINT_LENGTH = 512;
 
@@ -514,9 +514,9 @@ export interface ServiceRecord {
   [key: string]: unknown;
 }
 
-/** Is `collection` a service provider collection (dev.agentbus.* minus agent/proc)? */
+/** Is `collection` a service provider collection (org.latha.agentbus.* minus agent/proc)? */
 export function isServiceCollection(collection: string): boolean {
-  return collection.startsWith("dev.agentbus.") && !RESERVED_COLLECTIONS.has(collection);
+  return collection.startsWith("org.latha.agentbus.") && !RESERVED_COLLECTIONS.has(collection);
 }
 
 /** An https URL without credentials, query or fragment; plain http only on localhost (local dev). */
@@ -539,7 +539,7 @@ export function validateServiceRecord(collection: string, rkey: string | undefin
     throw new InvalidAgentRecordError(`Invalid ${collection} record: ${message}`);
   };
   if (!SERVICE_NSID_RE.test(collection) || collection.length > MAX_TAG_LENGTH) {
-    fail("collection must be dev.agentbus.<service>, e.g. dev.agentbus.weather");
+    fail("collection must be org.latha.agentbus.<service>, e.g. org.latha.agentbus.weather");
   }
   if (rkey !== SERVICE_RKEY) fail(`rkey must be ${SERVICE_RKEY}`);
   if (!record || typeof record !== "object" || Array.isArray(record)) fail("record must be an object");
