@@ -26,8 +26,10 @@ handle and the `atproto_pds` endpoint to this host.
 
 ## Idle bucket traffic
 
-`start-modal.sh` stretches celld's idle timers (presence, lease, rebalance,
-waker, deploy poll) and sets `CELLD_DURABILITY=bucket` so an idle node touches the bucket once every 30 seconds
-instead of about once a second. 30s is celld's floor, so a bucket host with a
-longer scale-down window (Modal's default is 60s) still only reaches zero when
-rookery itself does. Override any of them through the environment.
+`start-modal.sh` tunes celld so an idle node only renews its lease, every 80s
+(`CELLD_TTL_MS=240000`), which is longer than the MinIO app's 60s scale-down
+window. It also sets `CELLD_DURABILITY=bucket`: with one node, fleet durability
+probes for peers every second while any cell is resident. Because Modal stops
+celld without a graceful handoff, a new node waits up to the 240s lease after
+a redeploy; `CELLD_RECOVERY_RETRIES=300` keeps requests waiting through it.
+Override any of them through the environment.
