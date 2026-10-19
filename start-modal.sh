@@ -27,6 +27,10 @@ BUCKET="${CELLD_BUCKET:-s3://rookery-celld}"
 # 240s recovery retry budget.
 export CELLD_PRESENCE_HEARTBEAT_MS="${CELLD_PRESENCE_HEARTBEAT_MS:-30000}"
 export CELLD_TTL_MS="${CELLD_TTL_MS:-90000}"
+# One node: `fleet` durability has no follower to ack, so it already waits for
+# the bucket, but it also probes for peers every second while any cell is
+# resident (e.g. the relay's firehose socket). `bucket` skips that probe.
+export CELLD_DURABILITY="${CELLD_DURABILITY:-bucket}"
 # One node: nothing to rebalance (0 still samples capacity every 5s).
 export CELLD_REBALANCE_INTERVAL_MS="${CELLD_REBALANCE_INTERVAL_MS:-300000}"
 # rookery sets no Durable Object alarms.
