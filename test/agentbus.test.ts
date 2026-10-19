@@ -8,7 +8,7 @@ import {
   worker,
 } from "./helpers";
 import { initDirectory } from "../src/directory";
-import { InvalidAgentRecordError, validateAgentRecord } from "../src/agentbus";
+import { InvalidAgentRecordError, validateAgentRecord, validateProcRecord } from "../src/agentbus";
 
 const SERVICE_ORIGIN = `https://${env.ROOKERY_HOSTNAME}`;
 
@@ -220,6 +220,82 @@ describe("dev.agentbus.agent registry", () => {
 
     expect((await listAgents("limit=0")).status).toBe(400);
     expect((await listAgents("cursor=nope")).status).toBe(400);
+  });
+});
+
+function procRecord(name: string, extra: Record<string, unknown> = {}) {
+  return {
+    $type: "dev.agentbus.proc",
+    name,
+    description: `${name} proc`,
+    provides: [{ function: "weather.current" }, { function: "weather.forecast", regions: ["EU"] }],
+    publishes: [{ topic: "weather.current", subjects: "place" }, { topic: "weather.alert", subjects: "place" }],
+    freeq: { server: "irc.freeq.at" },
+    createdAt: new Date().toISOString(),
+    ...extra,
+  };
+}
+
+async function listProcs(query: string) {
+  const res = await worker.fetch(`${SERVICE_ORIGIN}/xrpc/dev.agentbus.listProcs?${query}`);
+  return { status: res.status, body: await res.json<{ procs: Array<{ did: string; name: string; uri: string; value: Record<string, unknown> }>; cursor?: string }>() };
+}
+
+describe("validateProcRecord", () => {
+  it("accepts a well-formed record", () => {
+    expect(validateProcRecord("weather", procRecord("weather")).name).toBe("weather");
+  });
+
+  it.each([
+    ["rkey mismatch", "other", procRecord("weather")],
+    ["missing createdAt", "weather", { ...procRecord("weather"), createdAt: undefined }],
+    ["wrong $type", "weather", procRecord("weather", { $type: "dev.agentbus.agent" })],
+    ["provides not array", "weather", procRecord("weather", { provides: "weather.current" })],
+    ["function with spaces", "weather", procRecord("weather", { provides: [{ function: "weather current" }] })],
+    ["topic pattern", "weather", procRecord("weather", { publishes: [{ topic: "weather.*" }] })],
+    ["bad regions", "weather", procRecord("weather", { provides: [{ function: "weather.current", regions: [1] }] })],
+    ["freeq without server", "weather", procRecord("weather", { freeq: {} })],
+  ])("rejects %s", (_label, rkey, record) => {
+    expect(() => validateProcRecord(rkey, record)).toThrow(InvalidAgentRecordError);
+  });
+});
+
+describe("dev.agentbus.proc registry", () => {
+  beforeAll(async () => {
+    await initDirectory(env.DIRECTORY);
+  });
+
+  it("indexes, filters and removes proc records", async () => {
+    const proc = await enroll("wx");
+    expect((await proc.call("putRecord", {
+      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather", record: procRecord("weather"),
+    })).status).toBe(200);
+
+    let listed = await listProcs(`did=${encodeURIComponent(proc.did)}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.procs).toHaveLength(1);
+    expect(listed.body.procs[0]).toMatchObject({
+      uri: `at://${proc.did}/dev.agentbus.proc/weather`,
+      name: "weather",
+      value: { publishes: [{ topic: "weather.current" }, { topic: "weather.alert" }] },
+    });
+    listed = await listProcs(`did=${encodeURIComponent(proc.did)}&topic=weather.alert`);
+    expect(listed.body.procs.map((p) => p.name)).toEqual(["weather"]);
+    listed = await listProcs(`did=${encodeURIComponent(proc.did)}&function=calendar.events`);
+    expect(listed.body.procs).toEqual([]);
+
+    const bad = await proc.call("putRecord", {
+      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather",
+      record: procRecord("weather", { publishes: [{ topic: "" }] }),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: "InvalidRecord" });
+
+    expect((await proc.call("deleteRecord", {
+      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather",
+    })).status).toBe(200);
+    expect((await listProcs(`did=${encodeURIComponent(proc.did)}`)).body.procs).toEqual([]);
+    expect((await listProcs("limit=0")).status).toBe(400);
   });
 });
 

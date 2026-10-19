@@ -266,3 +266,225 @@ export async function listAgents(db: D1Database, query: ListAgentsQuery): Promis
     indexedAt: row.indexed_at,
   }));
 }
+
+/*
+ * `dev.agentbus.proc` records describe networked procs: deterministic bots
+ * that host functions and publish topics on agent-bus. Each public proc has
+ * its own account holding one record, keyed by the proc's name, that lists
+ * what it provides and publishes. Validated and indexed like agents, served by
+ * `dev.agentbus.listProcs`.
+ */
+
+export const PROC_COLLECTION = "dev.agentbus.proc";
+
+const PROCS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS agentbus_procs (
+  did TEXT NOT NULL,
+  rkey TEXT NOT NULL,
+  functions TEXT NOT NULL,
+  topics TEXT NOT NULL,
+  record TEXT NOT NULL,
+  indexed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (did, rkey)
+);
+`;
+
+// Function and topic names: dotted app-domain words, e.g. weather.current.
+const BUS_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$/;
+
+export interface ProcRecord {
+  $type?: string;
+  name: string;
+  description?: string;
+  provides?: Array<{ function: string; regions?: string[] }>;
+  publishes?: Array<{ topic: string; subjects?: string }>;
+  freeq?: { server: string; channel?: string; did?: string };
+  createdAt: string;
+  [key: string]: unknown;
+}
+
+function failProc(message: string): never {
+  throw new InvalidAgentRecordError(`Invalid ${PROC_COLLECTION} record: ${message}`);
+}
+
+function entryList(
+  record: Record<string, unknown>,
+  field: "provides" | "publishes",
+  key: "function" | "topic",
+): void {
+  const value = record[field];
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > MAX_LIST_ITEMS) {
+    failProc(`${field} must be an array of at most ${MAX_LIST_ITEMS} entries`);
+  }
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      failProc(`${field} entries must be objects`);
+    }
+    const e = entry as Record<string, unknown>;
+    const name = e[key];
+    if (typeof name !== "string" || name.length > MAX_TAG_LENGTH || !BUS_NAME_RE.test(name)) {
+      failProc(`${field}[].${key} must be a dotted name such as weather.current`);
+    }
+    try {
+      optionalTagList(e, "regions");
+      optionalText(e, "subjects", MAX_TAG_LENGTH);
+    } catch {
+      failProc(`${field}[] has a malformed regions or subjects field`);
+    }
+  }
+}
+
+/** Validate a proc record against its rkey. Throws InvalidAgentRecordError. */
+export function validateProcRecord(rkey: string | undefined, record: unknown): ProcRecord {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    failProc("record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (new TextEncoder().encode(JSON.stringify(r)).length > MAX_RECORD_BYTES) {
+    failProc(`record exceeds ${MAX_RECORD_BYTES} bytes`);
+  }
+  if (r.$type !== undefined && r.$type !== PROC_COLLECTION) {
+    failProc(`$type must be ${PROC_COLLECTION}`);
+  }
+  if (typeof r.name !== "string" || !AGENT_NAME_RE.test(r.name)) {
+    failProc("name must match [A-Za-z_][A-Za-z0-9_]{0,63}");
+  }
+  if (rkey !== r.name) {
+    failProc("rkey must equal name");
+  }
+  if (typeof r.createdAt !== "string" || Number.isNaN(Date.parse(r.createdAt))) {
+    failProc("createdAt must be a datetime string");
+  }
+  try {
+    optionalText(r, "description");
+  } catch {
+    failProc(`description must be a non-empty string of at most ${MAX_TEXT_LENGTH} characters`);
+  }
+  entryList(r, "provides", "function");
+  entryList(r, "publishes", "topic");
+  if (r.freeq !== undefined) {
+    const freeq = r.freeq as Record<string, unknown>;
+    if (
+      !freeq || typeof freeq !== "object" || Array.isArray(freeq) ||
+      typeof freeq.server !== "string" || freeq.server.length === 0 || freeq.server.length > 256 ||
+      (freeq.channel !== undefined && (typeof freeq.channel !== "string" || freeq.channel.length > 256)) ||
+      (freeq.did !== undefined && (typeof freeq.did !== "string" || !freeq.did.startsWith("did:")))
+    ) {
+      failProc("freeq must be {server, channel?, did?}");
+    }
+  }
+  return r as ProcRecord;
+}
+
+export type ProcWrite =
+  | { kind: "put"; rkey: string; record: ProcRecord }
+  | { kind: "delete"; rkey: string };
+
+/** Validate the proc-collection writes in a batch before any of it is committed. */
+export function collectProcWrites(
+  writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
+): ProcWrite[] {
+  const out: ProcWrite[] = [];
+  for (const write of writes) {
+    if (write.collection !== PROC_COLLECTION) continue;
+    if (write.$type === "com.atproto.repo.applyWrites#delete") {
+      if (!write.rkey) failProc("delete requires rkey");
+      out.push({ kind: "delete", rkey: write.rkey });
+    } else {
+      out.push({ kind: "put", rkey: write.rkey!, record: validateProcRecord(write.rkey, write.record) });
+    }
+  }
+  return out;
+}
+
+async function ensureProcsSchema(db: D1Database): Promise<void> {
+  await db.prepare(PROCS_SCHEMA).run();
+}
+
+export async function applyProcIndex(db: D1Database, did: string, writes: ProcWrite[]): Promise<void> {
+  if (writes.length === 0) return;
+  await ensureProcsSchema(db);
+  await db.batch(writes.map((write) =>
+    write.kind === "delete"
+      ? db.prepare("DELETE FROM agentbus_procs WHERE did = ? AND rkey = ?").bind(did, write.rkey)
+      : db.prepare(
+        `INSERT INTO agentbus_procs (did, rkey, functions, topics, record, indexed_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT (did, rkey) DO UPDATE SET
+           functions = excluded.functions,
+           topics = excluded.topics,
+           record = excluded.record,
+           indexed_at = excluded.indexed_at`,
+      ).bind(
+        did,
+        write.rkey,
+        JSON.stringify((write.record.provides ?? []).map((p) => p.function)),
+        JSON.stringify((write.record.publishes ?? []).map((p) => p.topic)),
+        JSON.stringify(write.record),
+      )
+  ));
+}
+
+export async function deleteProcsForDid(db: D1Database, did: string): Promise<void> {
+  await ensureProcsSchema(db);
+  await db.prepare("DELETE FROM agentbus_procs WHERE did = ?").bind(did).run();
+}
+
+export interface ProcView {
+  uri: string;
+  did: string;
+  handle: string;
+  name: string;
+  value: ProcRecord;
+  indexedAt: string;
+}
+
+export interface ListProcsQuery {
+  did?: string;
+  fn?: string;
+  topic?: string;
+  limit: number;
+  cursor?: { did: string; rkey: string };
+}
+
+/** Procs on active accounts, ordered by (did, rkey), filtered and bounded. */
+export async function listProcs(db: D1Database, query: ListProcsQuery): Promise<ProcView[]> {
+  await ensureProcsSchema(db);
+  const where = ["a.active = 1"];
+  const binds: unknown[] = [];
+  if (query.did) {
+    where.push("p.did = ?");
+    binds.push(query.did);
+  }
+  if (query.fn) {
+    where.push("EXISTS (SELECT 1 FROM json_each(p.functions) WHERE value = ?)");
+    binds.push(query.fn);
+  }
+  if (query.topic) {
+    where.push("EXISTS (SELECT 1 FROM json_each(p.topics) WHERE value = ?)");
+    binds.push(query.topic);
+  }
+  if (query.cursor) {
+    where.push("(p.did > ? OR (p.did = ? AND p.rkey > ?))");
+    binds.push(query.cursor.did, query.cursor.did, query.cursor.rkey);
+  }
+  binds.push(query.limit);
+
+  const rows = await db.prepare(
+    `SELECT p.did, p.rkey, p.record, p.indexed_at, a.handle
+     FROM agentbus_procs p JOIN accounts a ON a.did = p.did
+     WHERE ${where.join(" AND ")}
+     ORDER BY p.did, p.rkey
+     LIMIT ?`,
+  ).bind(...binds).all<{ did: string; rkey: string; record: string; indexed_at: string; handle: string }>();
+
+  return rows.results.map((row) => ({
+    uri: `at://${row.did}/${PROC_COLLECTION}/${row.rkey}`,
+    did: row.did,
+    handle: row.handle,
+    name: row.rkey,
+    value: JSON.parse(row.record) as ProcRecord,
+    indexedAt: row.indexed_at,
+  }));
+}

@@ -223,11 +223,14 @@ For authenticated writes, agents reuse the `wm+jwt` access token with a fresh `d
 
 ### agent-bus registry
 
-`dev.agentbus.agent` is the one collection rookery validates: one record per agent, `rkey` equal to the agent's `name` (a D-Bus name element, `[A-Za-z_][A-Za-z0-9_]{0,63}`), with `createdAt` and optional `description`, `capabilities`, `taskClasses`, `interfaces`, `endpoint`, `transportKey` (`did:key:`) and `freeq` (`{server, channel?, did?}`). Malformed records are rejected with `InvalidRecord`. Valid ones are indexed so brokers can find agents across the PDS in one call.
+`dev.agentbus.agent` and `dev.agentbus.proc` are the collections rookery validates. Agents: one record per agent, `rkey` equal to the agent's `name` (a D-Bus name element, `[A-Za-z_][A-Za-z0-9_]{0,63}`), with `createdAt` and optional `description`, `capabilities`, `taskClasses`, `interfaces`, `endpoint`, `transportKey` (`did:key:`) and `freeq` (`{server, channel?, did?}`). Malformed records are rejected with `InvalidRecord`. Valid ones are indexed so brokers can find agents across the PDS in one call.
+
+`dev.agentbus.proc` describes a networked proc (a deterministic bot with its own account): one record, `rkey` equal to its `name`, with `createdAt` and optional `description`, `provides` (`[{function, regions?}]`), `publishes` (`[{topic, subjects?}]`), where function and topic names are dotted words such as `weather.current`, and `freeq`. Valid ones are indexed for `listProcs`.
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
 | GET | `/xrpc/dev.agentbus.listAgents` | no | Agents on active accounts; filter by `did`, `capability` or `taskClass`; `limit` (max 100) and `cursor` |
+| GET | `/xrpc/dev.agentbus.listProcs` | no | Procs on active accounts; filter by `did`, `function` or `topic`; `limit` (max 100) and `cursor` |
 
 ### sync
 

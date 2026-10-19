@@ -44,6 +44,12 @@ import {
   encodeAgentCursor,
   listAgents,
   type AgentWrite,
+  PROC_COLLECTION,
+  applyProcIndex,
+  collectProcWrites,
+  deleteProcsForDid,
+  listProcs,
+  type ProcWrite,
 } from "./agentbus";
 import { renderLandingPage } from "./landing";
 import {
@@ -388,18 +394,27 @@ function publicRequestUrl(c: { env: Env; req: { url: string } }): string {
   return `https://${c.env.ROOKERY_HOSTNAME}${parsed.pathname}${parsed.search}`;
 }
 
-/** Validate dev.agentbus.agent writes up front; a Response means reject with 400. */
+/** Validate dev.agentbus.agent and dev.agentbus.proc writes up front; a Response means reject with 400. */
 function checkAgentWrites(
   writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
-): AgentWrite[] | Response {
+): { agents: AgentWrite[]; procs: ProcWrite[] } | Response {
   try {
-    return collectAgentWrites(writes);
+    return { agents: collectAgentWrites(writes), procs: collectProcWrites(writes) };
   } catch (err) {
     if (err instanceof InvalidAgentRecordError) {
       return Response.json({ error: "InvalidRecord", message: err.message }, { status: 400 });
     }
     throw err;
   }
+}
+
+async function applyAgentbusIndex(
+  db: D1Database,
+  did: string,
+  writes: { agents: AgentWrite[]; procs: ProcWrite[] },
+): Promise<void> {
+  await applyAgentIndex(db, did, writes.agents);
+  await applyProcIndex(db, did, writes.procs);
 }
 
 type DpopAuthResult = {
@@ -1298,6 +1313,7 @@ app.delete("/admin/accounts/:did", async (c) => {
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(account.doId));
   const result = await stub.rpcTakedown(account.did);
   await deleteAgentsForDid(c.env.DIRECTORY, account.did);
+  await deleteProcsForDid(c.env.DIRECTORY, account.did);
 
   const claims = c.get("accessClaims");
   const actor = typeof claims.email === "string" && claims.email.length > 0
@@ -1887,6 +1903,35 @@ app.get("/xrpc/dev.agentbus.listAgents", async (c) => {
   return c.json(body);
 });
 
+// GET /xrpc/dev.agentbus.listProcs (public)
+// Every dev.agentbus.proc record on active accounts of this PDS, optionally
+// filtered by repo DID, provided function, or published topic.
+app.get("/xrpc/dev.agentbus.listProcs", async (c) => {
+  const limit = clampListAgentsLimit(c.req.query("limit"));
+  if (limit === null) {
+    return c.json({ error: "InvalidRequest", message: "limit must be a positive integer" }, 400);
+  }
+  const cursorParam = c.req.query("cursor");
+  const cursor = cursorParam ? decodeAgentCursor(cursorParam) : undefined;
+  if (cursor === null) {
+    return c.json({ error: "InvalidRequest", message: "Invalid cursor" }, 400);
+  }
+
+  await initDirectory(c.env.DIRECTORY);
+  const procs = await listProcs(c.env.DIRECTORY, {
+    did: c.req.query("did") || undefined,
+    fn: c.req.query("function") || undefined,
+    topic: c.req.query("topic") || undefined,
+    limit,
+    cursor,
+  });
+  const body: { procs: typeof procs; cursor?: string } = { procs };
+  if (procs.length === limit) {
+    body.cursor = encodeAgentCursor(procs[procs.length - 1]!);
+  }
+  return c.json(body);
+});
+
 // GET /xrpc/com.atproto.server.getSession (DPoP auth required)
 // freeq (and other ATProto clients) call this to verify a live PDS session for SASL pds-oauth.
 app.get("/xrpc/com.atproto.server.getSession", async (c) => {
@@ -2124,7 +2169,7 @@ app.post("/xrpc/com.atproto.repo.createRecord", async (c) => {
 
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
   const result = await stub.rpcCreateRecord(body.collection, body.rkey, body.record);
-  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  await applyAgentbusIndex(c.env.DIRECTORY, did, agentWrites);
   return c.json(result);
 });
 
@@ -2185,7 +2230,7 @@ app.post("/xrpc/com.atproto.repo.putRecord", async (c) => {
 
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
   const result = await stub.rpcPutRecord(body.collection, body.rkey, body.record);
-  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  await applyAgentbusIndex(c.env.DIRECTORY, did, agentWrites);
   return c.json(result);
 });
 
@@ -2243,6 +2288,8 @@ app.post("/xrpc/com.atproto.repo.deleteRecord", async (c) => {
   const result = await stub.rpcDeleteRecord(body.collection, body.rkey);
   if (body.collection === AGENT_COLLECTION) {
     await applyAgentIndex(c.env.DIRECTORY, did, [{ kind: "delete", rkey: body.rkey }]);
+  } else if (body.collection === PROC_COLLECTION) {
+    await applyProcIndex(c.env.DIRECTORY, did, [{ kind: "delete", rkey: body.rkey }]);
   }
   return c.json(result);
 });
@@ -2302,7 +2349,7 @@ app.post("/xrpc/com.atproto.repo.applyWrites", async (c) => {
 
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
   const result = await stub.rpcApplyWrites(body.writes);
-  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  await applyAgentbusIndex(c.env.DIRECTORY, did, agentWrites);
   return c.json(result);
 });
 
