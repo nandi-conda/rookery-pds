@@ -10,7 +10,7 @@ hibernation, so a relay holding `subscribeRepos` open costs nothing while idle.
 Deploys are operator-only, from a local checkout:
 
 ```sh
-npx wrangler login     # once
+pixi run cf-login      # once
 pixi run cf-deploy
 pixi run cf-secrets    # once: CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID, OAUTH_NONCE_SECRET
 ```
