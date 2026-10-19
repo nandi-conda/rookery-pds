@@ -64,7 +64,7 @@ describe("D1 Directory", () => {
         handle: "alice.rookery.test",
       });
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=alice.rookery.test",
+        "https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=alice.rookery.test",
       );
       expect(res.status).toBe(200);
       const body = await res.json() as { did: string };
@@ -73,14 +73,14 @@ describe("D1 Directory", () => {
 
     it("returns 400 when handle param is missing", async () => {
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.identity.resolveHandle",
+        "https://rookery.test/xrpc/com.atproto.identity.resolveHandle",
       );
       expect(res.status).toBe(400);
     });
 
     it("returns 404 for unknown handle", async () => {
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=nobody.rookery.test",
+        "https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=nobody.rookery.test",
       );
       expect(res.status).toBe(404);
     });
@@ -111,7 +111,7 @@ describe("D1 Directory", () => {
   describe("com.atproto.sync.listRepos", () => {
     it("returns repos ordered by DID", async () => {
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.sync.listRepos",
+        "https://rookery.test/xrpc/com.atproto.sync.listRepos",
       );
       expect(res.status).toBe(200);
       const body = await res.json() as {
@@ -142,7 +142,7 @@ describe("D1 Directory", () => {
       });
 
       const res1 = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.sync.listRepos?limit=1",
+        "https://rookery.test/xrpc/com.atproto.sync.listRepos?limit=1",
       );
       expect(res1.status).toBe(200);
       const body1 = await res1.json() as {
@@ -153,7 +153,7 @@ describe("D1 Directory", () => {
       expect(body1.cursor).toBeTruthy();
 
       const res2 = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.sync.listRepos?limit=1&cursor=${body1.cursor}`,
+        `https://rookery.test/xrpc/com.atproto.sync.listRepos?limit=1&cursor=${body1.cursor}`,
       );
       expect(res2.status).toBe(200);
       const body2 = await res2.json() as {
@@ -168,7 +168,7 @@ describe("D1 Directory", () => {
 
     it("omits cursor on final page", async () => {
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.sync.listRepos?limit=1000",
+        "https://rookery.test/xrpc/com.atproto.sync.listRepos?limit=1000",
       );
       expect(res.status).toBe(200);
       const body = await res.json() as {
@@ -184,7 +184,7 @@ describe("D1 Directory", () => {
   describe("com.atproto.server.describeServer", () => {
     it("returns server description with account count", async () => {
       const res = await worker.fetch(
-        "http://localhost/xrpc/com.atproto.server.describeServer",
+        "https://rookery.test/xrpc/com.atproto.server.describeServer",
       );
       expect(res.status).toBe(200);
       const body = await res.json() as {
@@ -355,7 +355,7 @@ describe("D1 Directory", () => {
         handle: "wk-test.rookery.test",
       });
       const res = await worker.fetch(
-        new Request("http://localhost/.well-known/atproto-did", {
+        new Request("https://rookery.test/.well-known/atproto-did", {
           headers: { Host: "wk-test.rookery.test" },
         }),
       );
@@ -366,7 +366,7 @@ describe("D1 Directory", () => {
 
     it("returns 404 for unknown handle hostname", async () => {
       const res = await worker.fetch(
-        new Request("http://localhost/.well-known/atproto-did", {
+        new Request("https://rookery.test/.well-known/atproto-did", {
           headers: { Host: "unknown.rookery.test" },
         }),
       );

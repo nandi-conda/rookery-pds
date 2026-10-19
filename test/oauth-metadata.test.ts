@@ -5,7 +5,7 @@ describe("OAuth discovery metadata", () => {
 
   it("serves exact authorization server metadata", async () => {
     const response = await worker.fetch(
-      "http://localhost/.well-known/oauth-authorization-server",
+      "https://rookery.test/.well-known/oauth-authorization-server",
     );
 
     expect(response.status).toBe(200);
@@ -32,7 +32,7 @@ describe("OAuth discovery metadata", () => {
 
   it("serves exact protected resource metadata", async () => {
     const response = await worker.fetch(
-      "http://localhost/.well-known/oauth-protected-resource",
+      "https://rookery.test/.well-known/oauth-protected-resource",
     );
 
     expect(response.status).toBe(200);

@@ -102,7 +102,7 @@ describe("Blob storage", () => {
     });
 
     const response = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(blobRef.ref.$link)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(blobRef.ref.$link)}`,
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
@@ -125,7 +125,7 @@ describe("Blob storage", () => {
   it("uploads a blob via the DPoP-authenticated route", async () => {
     const { authKeys, publicJwk, thumbprint } = await generateAuthKeys();
     const { did } = await setupBlobTestAccount(env, { jwkThumbprint: thumbprint });
-    const tosText = await worker.fetch("http://localhost/tos").then((response) => response.text());
+    const tosText = await worker.fetch("https://rookery.test/tos").then((response) => response.text());
     const accessToken = await buildAccessToken(
       authKeys,
       thumbprint,
@@ -142,7 +142,7 @@ describe("Blob storage", () => {
       {
         jti: `jti-${Date.now().toString(36)}`,
         htm: "POST",
-        htu: "http://localhost/xrpc/com.atproto.repo.uploadBlob",
+        htu: "https://rookery.test/xrpc/com.atproto.repo.uploadBlob",
         iat: Math.floor(Date.now() / 1000),
         ath: await sha256Base64url(accessToken),
       },
@@ -150,7 +150,7 @@ describe("Blob storage", () => {
     );
 
     const response = await worker.fetch(
-      new Request("http://localhost/xrpc/com.atproto.repo.uploadBlob", {
+      new Request("https://rookery.test/xrpc/com.atproto.repo.uploadBlob", {
         method: "POST",
         headers: {
           authorization: `DPoP ${accessToken}`,

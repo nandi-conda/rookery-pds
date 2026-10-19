@@ -178,7 +178,7 @@ describe("client metadata", () => {
     );
     expect(matchRedirectUri("http://127.0.0.1:123/cb?a=1", "http://127.0.0.1:456/cb?a=2"))
       .toBe(false);
-    expect(matchRedirectUri("http://localhost:123/cb", "http://localhost:456/cb")).toBe(false);
+    expect(matchRedirectUri("https://rookery.test:123/cb", "https://rookery.test:456/cb")).toBe(false);
   });
 });
 

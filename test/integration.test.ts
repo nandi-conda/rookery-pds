@@ -51,7 +51,7 @@ async function getFirehoseRows(): Promise<
 }
 
 async function fetchTosText(): Promise<string> {
-  const response = await worker.fetch("http://localhost/tos");
+  const response = await worker.fetch("https://rookery.test/tos");
   expect(response.status).toBe(200);
   return response.text();
 }
@@ -165,7 +165,7 @@ describe("Integration", () => {
 
     const tosText = await fetchTosText();
     const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
-    const createUrl = "http://localhost/xrpc/com.atproto.repo.createRecord";
+    const createUrl = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
     const createResponse = await worker.fetch(
       new Request(createUrl, {
         method: "POST",
@@ -185,7 +185,7 @@ describe("Integration", () => {
     expect(createResponse.status).toBe(200);
 
     const getResponse = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=com.example.test&rkey=post1`,
+      `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=com.example.test&rkey=post1`,
     );
     expect(getResponse.status).toBe(200);
     expect(await getResponse.json()).toMatchObject({
@@ -193,7 +193,7 @@ describe("Integration", () => {
     });
 
     const repoExport = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(did)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(did)}`,
     );
     expect(repoExport.status).toBe(200);
     expect(repoExport.headers.get("content-type")).toBe("application/vnd.ipld.car");
@@ -220,7 +220,7 @@ describe("Integration", () => {
       agentBKeys.thumbprint,
     );
 
-    const createUrl = "http://localhost/xrpc/com.atproto.repo.createRecord";
+    const createUrl = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
     const agentAAccessToken = await buildAccessToken(
       agentAKeys.authKeys,
       agentAKeys.thumbprint,
@@ -281,7 +281,7 @@ describe("Integration", () => {
     expect(agentBWrite.status).toBe(200);
 
     const agentARecord = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(agentA.did)}&collection=com.example.test&rkey=a-post`,
+      `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(agentA.did)}&collection=com.example.test&rkey=a-post`,
     );
     expect(agentARecord.status).toBe(200);
     expect(await agentARecord.json()).toMatchObject({
@@ -289,7 +289,7 @@ describe("Integration", () => {
     });
 
     const agentBRecord = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(agentB.did)}&collection=com.example.test&rkey=b-post`,
+      `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(agentB.did)}&collection=com.example.test&rkey=b-post`,
     );
     expect(agentBRecord.status).toBe(200);
     expect(await agentBRecord.json()).toMatchObject({
@@ -297,7 +297,7 @@ describe("Integration", () => {
     });
 
     const agentAList = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(agentA.did)}&collection=com.example.test`,
+      `https://rookery.test/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(agentA.did)}&collection=com.example.test`,
     );
     expect(agentAList.status).toBe(200);
     const agentAListBody = await agentAList.json() as {
@@ -310,7 +310,7 @@ describe("Integration", () => {
     });
 
     const agentBList = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(agentB.did)}&collection=com.example.test`,
+      `https://rookery.test/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(agentB.did)}&collection=com.example.test`,
     );
     expect(agentBList.status).toBe(200);
     const agentBListBody = await agentBList.json() as {
@@ -334,7 +334,7 @@ describe("Integration", () => {
     expect(account.did.startsWith("did:plc:")).toBe(true);
 
     const response = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.handle)}`,
+      `https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.handle)}`,
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ did: account.did });
@@ -407,16 +407,16 @@ describe("Integration", () => {
       expect(plcPosts[0]!.op.sig).not.toBe("genesis-sig");
 
       const resolved = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(newHandle)}`,
+        `https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(newHandle)}`,
       );
       expect(await resolved.json()).toEqual({ did: account.did });
       const old = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.handle)}`,
+        `https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.handle)}`,
       );
       expect(old.status).toBe(404);
 
       const described = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(account.did)}`,
+        `https://rookery.test/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(account.did)}`,
       );
       expect(await described.json()).toMatchObject({ handle: newHandle });
 
@@ -460,7 +460,7 @@ describe("Integration", () => {
           message: "Handle is reserved. Choose a different name.",
         });
       }
-    });
+    }, 30_000); // seven RSA-4096 keygens
 
     it("rejects dotted and syntactically invalid labels as invalid handles", async () => {
       const dotted = await signupWithFreshKeys("admin.x");
@@ -513,14 +513,14 @@ describe("Integration", () => {
         SERVICE_ORIGIN,
       );
       const duplicateResponse = await worker.fetch(
-        new Request("http://localhost/api/signup", {
+        new Request("https://rookery.test/api/signup", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             dpop: await createDpopJwt(
               duplicateSignupKeys.authKeys,
               duplicateSignupKeys.publicJwk,
-              "http://localhost/api/signup",
+              "https://rookery.test/api/signup",
               null,
             ),
           },
@@ -562,7 +562,7 @@ describe("Integration", () => {
     expect(dupThumbAccount.did.startsWith("did:plc:")).toBe(true);
 
     const missingAuthResponse = await worker.fetch(
-      new Request("http://localhost/xrpc/com.atproto.repo.createRecord", {
+      new Request("https://rookery.test/xrpc/com.atproto.repo.createRecord", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -576,7 +576,7 @@ describe("Integration", () => {
     expect(missingAuthResponse.status).toBe(401);
 
     const invalidDpopResponse = await worker.fetch(
-      new Request("http://localhost/xrpc/com.atproto.repo.createRecord", {
+      new Request("https://rookery.test/xrpc/com.atproto.repo.createRecord", {
         method: "POST",
         headers: {
           authorization: "DPoP fake-token",
@@ -614,7 +614,7 @@ describe("Integration", () => {
         const tosText = await fetchTosText();
         const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
         const response = await worker.fetch(
-          new Request("http://localhost/api/signup", {
+          new Request("https://rookery.test/api/signup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -640,11 +640,11 @@ describe("Integration", () => {
         const tosText = await fetchTosText();
         const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
         const response = await worker.fetch(
-          new Request("http://localhost/api/signup", {
+          new Request("https://rookery.test/api/signup", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              dpop: await createDpopJwt(authKeys, publicJwk, "http://localhost/api/signup", null),
+              dpop: await createDpopJwt(authKeys, publicJwk, "https://rookery.test/api/signup", null),
             },
             body: JSON.stringify({
               handle: `bad-tos-sig-${Date.now().toString(36)}`,
@@ -678,11 +678,11 @@ describe("Integration", () => {
           authKeys.privateKey,
         );
         const response = await worker.fetch(
-          new Request("http://localhost/api/signup", {
+          new Request("https://rookery.test/api/signup", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              dpop: await createDpopJwt(authKeys, publicJwk, "http://localhost/api/signup", null),
+              dpop: await createDpopJwt(authKeys, publicJwk, "https://rookery.test/api/signup", null),
             },
             body: JSON.stringify({
               handle: `wrong-tos-hash-${Date.now().toString(36)}`,
@@ -717,7 +717,7 @@ describe("Integration", () => {
         },
         authKeys.privateKey,
       );
-      const createUrl = "http://localhost/xrpc/com.atproto.repo.createRecord";
+      const createUrl = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
       const response = await worker.fetch(
         new Request(createUrl, {
           method: "POST",
@@ -750,7 +750,7 @@ describe("Integration", () => {
     );
     const tosText = await fetchTosText();
     const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
-    const uploadUrl = "http://localhost/xrpc/com.atproto.repo.uploadBlob";
+    const uploadUrl = "https://rookery.test/xrpc/com.atproto.repo.uploadBlob";
     const bytes = new TextEncoder().encode("test blob data");
     const uploadResponse = await worker.fetch(
       new Request(uploadUrl, {
@@ -771,7 +771,7 @@ describe("Integration", () => {
     const cid = uploadBody.blob.ref.$link;
 
     const downloadResponse = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`,
     );
     expect(downloadResponse.status).toBe(200);
     expect(new Uint8Array(await downloadResponse.arrayBuffer())).toEqual(bytes);
@@ -787,7 +787,7 @@ describe("Integration", () => {
     );
     const tosText = await fetchTosText();
     const accessToken = await buildAccessToken(authKeys, thumbprint, tosText, SERVICE_ORIGIN);
-    const createUrl = "http://localhost/xrpc/com.atproto.repo.createRecord";
+    const createUrl = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
 
     for (const collection of [
       "com.example.foo.bar",
@@ -816,10 +816,10 @@ describe("Integration", () => {
   });
 
   describe("OAuth authorize/PAR", () => {
-    const PAR_URL = "http://localhost/oauth/par";
-    const AUTHORIZE_URL = "http://localhost/oauth/authorize";
-    const TOKEN_URL = "http://localhost/oauth/token";
-    const REVOKE_URL = "http://localhost/oauth/revoke";
+    const PAR_URL = "https://rookery.test/oauth/par";
+    const AUTHORIZE_URL = "https://rookery.test/oauth/authorize";
+    const TOKEN_URL = "https://rookery.test/oauth/token";
+    const REVOKE_URL = "https://rookery.test/oauth/revoke";
     const CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
     type ParSuccess = {
@@ -1229,7 +1229,7 @@ describe("Integration", () => {
       rkey: string,
       dpopOverride?: string,
     ): Promise<Response> {
-      const url = "http://localhost/xrpc/com.atproto.repo.createRecord";
+      const url = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
       const headers = await oauthHeaders(par, url, token.access_token);
       if (dpopOverride !== undefined) {
         headers.dpop = dpopOverride;
@@ -1258,7 +1258,7 @@ describe("Integration", () => {
       lxm: string,
       exp?: number,
     ): Promise<Response> {
-      const url = new URL("http://localhost/xrpc/com.atproto.server.getServiceAuth");
+      const url = new URL("https://rookery.test/xrpc/com.atproto.server.getServiceAuth");
       url.searchParams.set("aud", aud);
       url.searchParams.set("lxm", lxm);
       if (exp !== undefined) {
@@ -1282,7 +1282,7 @@ describe("Integration", () => {
       accessToken: string,
       body: Uint8Array,
     ): Promise<Response> {
-      const url = "http://localhost/xrpc/com.atproto.repo.uploadBlob";
+      const url = "https://rookery.test/xrpc/com.atproto.repo.uploadBlob";
       return worker.fetch(
         new Request(url, {
           method: "POST",
@@ -1668,7 +1668,7 @@ describe("Integration", () => {
       it("rejects forged resource proofs and replayed resource proof jtis", async () => {
         const issued = await issueOauthToken("atproto repo:com.example.test");
         try {
-          const url = "http://localhost/xrpc/com.atproto.repo.createRecord";
+          const url = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
           const dpop = await createOauthDpopJwt(
             issued.par.ecKeys,
             issued.par.publicJwk,
@@ -1734,7 +1734,7 @@ describe("Integration", () => {
 
         issued = await issueOauthToken("atproto repo:com.example.allowed");
         try {
-          const url = "http://localhost/xrpc/com.atproto.repo.applyWrites";
+          const url = "https://rookery.test/xrpc/com.atproto.repo.applyWrites";
           const response = await worker.fetch(
             new Request(url, {
               method: "POST",
@@ -1763,7 +1763,7 @@ describe("Integration", () => {
           expect(response.status).toBe(403);
           await expect(response.json()).resolves.toMatchObject({ error: "InsufficientScope" });
           const get = await worker.fetch(
-            `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(issued.token.sub)}&collection=com.example.allowed&rkey=allowed-create`,
+            `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(issued.token.sub)}&collection=com.example.allowed&rkey=allowed-create`,
           );
           expect(get.status).toBe(404);
         } finally {

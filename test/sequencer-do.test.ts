@@ -67,7 +67,7 @@ async function createAccountViaSignup(handle: string): Promise<{ did: string }> 
 
   try {
     const { authKeys, publicJwk, thumbprint } = await generateAuthKeys();
-    const tosText = await worker.fetch("http://localhost/tos").then((response) => response.text());
+    const tosText = await worker.fetch("https://rookery.test/tos").then((response) => response.text());
     const accessToken = await buildAccessToken(
       authKeys,
       thumbprint,
@@ -75,11 +75,11 @@ async function createAccountViaSignup(handle: string): Promise<{ did: string }> 
       `https://${env.ROOKERY_HOSTNAME}`,
     );
     const response = await worker.fetch(
-      new Request("http://localhost/api/signup", {
+      new Request("https://rookery.test/api/signup", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          dpop: await createDpopJwt(authKeys, publicJwk, "http://localhost/api/signup", null),
+          dpop: await createDpopJwt(authKeys, publicJwk, "https://rookery.test/api/signup", null),
         },
         body: JSON.stringify({
           handle,

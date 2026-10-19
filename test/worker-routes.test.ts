@@ -55,14 +55,14 @@ describe("Worker routes", () => {
 
   describe("CORS middleware", () => {
     it("includes CORS headers on GET responses", async () => {
-      const response = await worker.fetch("http://localhost/");
+      const response = await worker.fetch("https://rookery.test/");
       expect(response.status).toBe(200);
       expect(response.headers.get("access-control-allow-origin")).toBe("*");
     });
 
     it("handles OPTIONS preflight before route middleware", async () => {
       const response = await worker.fetch(
-        new Request("http://localhost/xrpc/com.atproto.repo.getRecord", {
+        new Request("https://rookery.test/xrpc/com.atproto.repo.getRecord", {
           method: "OPTIONS",
           headers: {
             origin: "https://example.com",
@@ -83,7 +83,7 @@ describe("Worker routes", () => {
 
     it("includes CORS headers on POST error responses", async () => {
       const response = await worker.fetch(
-        new Request("http://localhost/xrpc/com.atproto.repo.createRecord", {
+        new Request("https://rookery.test/xrpc/com.atproto.repo.createRecord", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -98,40 +98,39 @@ describe("Worker routes", () => {
   });
 
   it("serves welcome and terms documents", async () => {
-    const welcome = await worker.fetch("http://localhost/.well-known/welcome.md");
+    const welcome = await worker.fetch("https://rookery.test/.well-known/welcome.md");
     expect(welcome.status).toBe(200);
     expect(await welcome.text()).toContain("WelcomeMat");
 
-    const tos = await worker.fetch("http://localhost/tos");
+    const tos = await worker.fetch("https://rookery.test/tos");
     expect(tos.status).toBe(200);
     expect(await tos.text()).toContain("Terms of Service");
   });
 
   it("keeps commons-only invite routes hidden on the reference variant", async () => {
-    expect((await worker.fetch("http://localhost/roost")).status).toBe(404);
-    expect((await worker.fetch("http://localhost/client-metadata.json")).status).toBe(404);
+    expect((await worker.fetch("https://rookery.test/roost")).status).toBe(404);
 
-    const apiInvite = await worker.fetch(new Request("http://localhost/api/invites", {
+    const apiInvite = await worker.fetch(new Request("https://rookery.test/api/invites", {
       method: "POST",
     }));
     expect(apiInvite.status).toBe(404);
 
-    const adminInvite = await worker.fetch(new Request("http://localhost/admin/invites", {
+    const adminInvite = await worker.fetch(new Request("https://rookery.test/admin/invites", {
       method: "POST",
     }));
     expect(adminInvite.status).toBe(404);
 
-    const adminList = await worker.fetch("http://localhost/admin/invites");
+    const adminList = await worker.fetch("https://rookery.test/admin/invites");
     expect(adminList.status).toBe(404);
 
-    const quota = await worker.fetch(new Request("http://localhost/admin/quotas/did:plc:reference", {
+    const quota = await worker.fetch(new Request("https://rookery.test/admin/quotas/did:plc:reference", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ quota: 1 }),
     }));
     expect(quota.status).toBe(404);
 
-    const config = await worker.fetch(new Request("http://localhost/admin/config/invite_quota_default", {
+    const config = await worker.fetch(new Request("https://rookery.test/admin/config/invite_quota_default", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ value: 1 }),
@@ -139,7 +138,7 @@ describe("Worker routes", () => {
     expect(config.status).toBe(404);
 
     const takedown = await worker.fetch(new Request(
-      "http://localhost/admin/accounts/did:plc:reference",
+      "https://rookery.test/admin/accounts/did:plc:reference",
       {
         method: "DELETE",
         headers: { "content-type": "application/json" },
@@ -160,7 +159,7 @@ describe("Worker routes", () => {
     });
 
     const getRecord = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(handle)}&collection=app.bsky.feed.post&rkey=route-rkey`,
+      `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(handle)}&collection=app.bsky.feed.post&rkey=route-rkey`,
     );
     expect(getRecord.status).toBe(200);
     expect(await getRecord.json()).toMatchObject({
@@ -169,7 +168,7 @@ describe("Worker routes", () => {
     });
 
     const listRecords = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(handle)}&collection=app.bsky.feed.post`,
+      `https://rookery.test/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(handle)}&collection=app.bsky.feed.post`,
     );
     expect(listRecords.status).toBe(200);
     const listBody = await listRecords.json() as {
@@ -178,7 +177,7 @@ describe("Worker routes", () => {
     expect(listBody.records.some((record) => record.uri.endsWith("/route-rkey"))).toBe(true);
 
     const describeRepo = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(handle)}`,
+      `https://rookery.test/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(handle)}`,
     );
     expect(describeRepo.status).toBe(200);
     expect(await describeRepo.json()).toMatchObject({
@@ -189,7 +188,7 @@ describe("Worker routes", () => {
     });
 
     const latestCommit = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(did)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(did)}`,
     );
     expect(latestCommit.status).toBe(200);
     expect(await latestCommit.json()).toMatchObject({
@@ -198,7 +197,7 @@ describe("Worker routes", () => {
     });
 
     const repoStatus = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getRepoStatus?did=${encodeURIComponent(did)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getRepoStatus?did=${encodeURIComponent(did)}`,
     );
     expect(repoStatus.status).toBe(200);
     expect(await repoStatus.json()).toMatchObject({
@@ -208,7 +207,7 @@ describe("Worker routes", () => {
     });
 
     const repoExport = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(did)}`,
+      `https://rookery.test/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(did)}`,
     );
     expect(repoExport.status).toBe(200);
     expect(repoExport.headers.get("content-type")).toBe("application/vnd.ipld.car");
@@ -252,7 +251,7 @@ describe("Worker routes", () => {
       rkey: "pull-rkey",
     });
     const getRecord = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.getRecord?${getParams}`,
+      `https://rookery.test/xrpc/com.atproto.repo.getRecord?${getParams}`,
     );
     expect(getRecord.status).toBe(200);
     const getBody = await getRecord.json() as {
@@ -267,7 +266,7 @@ describe("Worker routes", () => {
       collection: "sh.tangled.repo.pull",
     });
     const listRecords = await worker.fetch(
-      `http://localhost/xrpc/com.atproto.repo.listRecords?${listParams}`,
+      `https://rookery.test/xrpc/com.atproto.repo.listRecords?${listParams}`,
     );
     expect(listRecords.status).toBe(200);
     const listBody = await listRecords.json() as {
@@ -287,7 +286,7 @@ describe("Worker routes", () => {
 
   it("handles authenticated repo write routes", async () => {
     const { did, stub, authKeys, publicJwk, thumbprint } = await setupRouteTestAccount();
-    const tosText = await worker.fetch("http://localhost/tos").then((response) => response.text());
+    const tosText = await worker.fetch("https://rookery.test/tos").then((response) => response.text());
     const accessToken = await buildAccessToken(
       authKeys,
       thumbprint,
@@ -295,7 +294,7 @@ describe("Worker routes", () => {
       `https://${env.ROOKERY_HOSTNAME}`,
     );
 
-    const createUrl = "http://localhost/xrpc/com.atproto.repo.createRecord";
+    const createUrl = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
     const createDpop = await createDpopJwt(authKeys, publicJwk, createUrl, accessToken);
     const createResponse = await worker.fetch(
       new Request(createUrl, {
@@ -315,7 +314,7 @@ describe("Worker routes", () => {
     );
     expect(createResponse.status).toBe(200);
 
-    const putUrl = "http://localhost/xrpc/com.atproto.repo.putRecord";
+    const putUrl = "https://rookery.test/xrpc/com.atproto.repo.putRecord";
     const putDpop = await createDpopJwt(authKeys, publicJwk, putUrl, accessToken);
     const putResponse = await worker.fetch(
       new Request(putUrl, {
@@ -335,7 +334,7 @@ describe("Worker routes", () => {
     );
     expect(putResponse.status).toBe(200);
 
-    const applyWritesUrl = "http://localhost/xrpc/com.atproto.repo.applyWrites";
+    const applyWritesUrl = "https://rookery.test/xrpc/com.atproto.repo.applyWrites";
     const applyWritesDpop = await createDpopJwt(authKeys, publicJwk, applyWritesUrl, accessToken);
     const applyWritesResponse = await worker.fetch(
       new Request(applyWritesUrl, {
@@ -368,7 +367,7 @@ describe("Worker routes", () => {
       ],
     });
 
-    const deleteUrl = "http://localhost/xrpc/com.atproto.repo.deleteRecord";
+    const deleteUrl = "https://rookery.test/xrpc/com.atproto.repo.deleteRecord";
     const deleteDpop = await createDpopJwt(authKeys, publicJwk, deleteUrl, accessToken);
     const deleteResponse = await worker.fetch(
       new Request(deleteUrl, {

@@ -89,7 +89,7 @@ function fullHandle(handle: string): string {
 }
 
 async function fetchTosText(): Promise<string> {
-  const response = await worker.fetch("http://localhost/tos");
+  const response = await worker.fetch("https://rookery.test/tos");
   expect(response.status).toBe(200);
   return response.text();
 }
@@ -201,11 +201,11 @@ async function signupWithFreshKeys(
   }
 
   const response = await worker.fetch(
-    new Request("http://localhost/api/signup", {
+    new Request("https://rookery.test/api/signup", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        dpop: await createDpopJwt(authKeys, publicJwk, "http://localhost/api/signup", null),
+        dpop: await createDpopJwt(authKeys, publicJwk, "https://rookery.test/api/signup", null),
       },
       body: JSON.stringify(requestBody),
     }),
@@ -238,7 +238,7 @@ async function publishRecord(
   collection = "app.bsky.feed.post",
   rkey?: string,
 ): Promise<{ uri: string; cid: string }> {
-  const url = "http://localhost/xrpc/com.atproto.repo.createRecord";
+  const url = "https://rookery.test/xrpc/com.atproto.repo.createRecord";
   const response = await worker.fetch(
     new Request(url, {
       method: "POST",
@@ -266,7 +266,7 @@ async function uploadBlob(
   account: SignupResult & { did: string },
   bytes: Uint8Array,
 ): Promise<{ ref: { $link: string } }> {
-  const url = "http://localhost/xrpc/com.atproto.repo.uploadBlob";
+  const url = "https://rookery.test/xrpc/com.atproto.repo.uploadBlob";
   const response = await worker.fetch(
     new Request(url, {
       method: "POST",
@@ -324,7 +324,7 @@ async function mintAsRook(account: SignupResult & { did: string }): Promise<{
   status: number;
   body: { token?: string; url?: string; remaining?: number; error?: string; message?: string };
 }> {
-  const url = "http://localhost/api/invites";
+  const url = "https://rookery.test/api/invites";
   const response = await worker.fetch(
     new Request(url, {
       method: "POST",
@@ -402,7 +402,7 @@ async function adminFetch(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("Cf-Access-Jwt-Assertion", await buildAccessAssertion(access, overrides));
-  return worker.fetch(new Request(`http://localhost${path}`, { ...init, headers }));
+  return worker.fetch(new Request(`https://rookery.test${path}`, { ...init, headers }));
 }
 
 async function directTakedownAccount(
@@ -413,7 +413,7 @@ async function directTakedownAccount(
 ): Promise<Response> {
   const headers = new Headers({ "content-type": "application/json" });
   headers.set("Cf-Access-Jwt-Assertion", await buildAccessAssertion(access));
-  const request = new Request(`http://localhost/admin/accounts/${account.did}`, {
+  const request = new Request(`https://rookery.test/admin/accounts/${account.did}`, {
     method: "DELETE",
     headers,
     body: JSON.stringify({ confirm: account.body.handle }),
@@ -435,7 +435,7 @@ const CANONICAL_TOS_SHA256_HEX =
 
 describe("commons /tos canonical byte-form", () => {
   it("serves the agent-signed bytes as text/markdown, sha256-locked", async () => {
-    const response = await worker.fetch("http://localhost/tos");
+    const response = await worker.fetch("https://rookery.test/tos");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
 
@@ -458,29 +458,26 @@ describe("commons /tos canonical byte-form", () => {
 });
 
 it("serves the rook CLI OAuth client metadata", async () => {
-  const EXPECTED_SCOPE =
-    "atproto transition:generic repo:sh.tangled.repo repo:sh.tangled.repo.pull blob:*/* rpc:sh.tangled.repo.create?aud=did:web:knot.rook.host rpc:sh.tangled.git.receivePack?aud=did:web:knot.rook.host";
+  const origin = `https://${env.ROOKERY_HOSTNAME}`;
   const expected = {
-    client_id: "https://rook.host/client-metadata.json",
+    client_id: `${origin}/client-metadata.json`,
     client_name: "rook cli",
     application_type: "native",
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     redirect_uris: ["http://127.0.0.1/callback"],
-    scope: EXPECTED_SCOPE,
+    scope: "atproto",
     token_endpoint_auth_method: "none",
     dpop_bound_access_tokens: true,
-    client_uri: "https://rook.host",
+    client_uri: origin,
   };
   const response = await worker.fetch(
-    new Request("http://localhost/client-metadata.json"),
+    new Request(`${origin}/client-metadata.json`),
   );
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")?.startsWith("application/json")).toBe(true);
-  const body = await response.json() as typeof expected;
-  expect(body).toEqual(expected);
-  expect(body.scope).toBe(EXPECTED_SCOPE);
+  expect(await response.json()).toEqual(expected);
 });
 
 describe("commons invite-gated enrollment", () => {
@@ -656,12 +653,12 @@ describe("commons invite-gated enrollment", () => {
   });
 
   it("reports invite-required server metadata and commons welcome text", async () => {
-    const describe = await worker.fetch("http://localhost/xrpc/com.atproto.server.describeServer");
+    const describe = await worker.fetch("https://rookery.test/xrpc/com.atproto.server.describeServer");
     expect(describe.status).toBe(200);
     const describeBody = await describe.json() as { inviteCodeRequired: boolean };
     expect(describeBody.inviteCodeRequired).toBe(true);
 
-    const welcome = await worker.fetch("http://localhost/.well-known/welcome.md");
+    const welcome = await worker.fetch("https://rookery.test/.well-known/welcome.md");
     expect(welcome.status).toBe(200);
     const text = await welcome.text();
     expect(text).toContain("WelcomeMat v1.1");
@@ -675,7 +672,7 @@ describe("commons invite-gated enrollment", () => {
   });
 
   it("redirects /roost to the invite landing", async () => {
-    const response = await worker.fetch("http://localhost/roost", { redirect: "manual" });
+    const response = await worker.fetch("https://rookery.test/roost", { redirect: "manual" });
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/invite");
     expect(await response.text()).toContain("Continue to rookery");
@@ -782,7 +779,7 @@ describe("commons invite-gated enrollment", () => {
       expect(valid.status).toBe(200);
 
       __resetAccessJwksCache();
-      const missing = await worker.fetch(new Request("http://localhost/admin/invites", {
+      const missing = await worker.fetch(new Request("https://rookery.test/admin/invites", {
         method: "POST",
       }));
       expect(missing.status).toBe(403);
@@ -856,7 +853,7 @@ describe("commons invite-gated enrollment", () => {
       // leading byte, so the decoded signature always changes. (Flipping the last
       // char is unreliable — it carries only 2 significant bits, the rest padding.)
       parts[2] = (signature.startsWith("A") ? "B" : "A") + signature.slice(1);
-      const badSignature = await worker.fetch(new Request("http://localhost/admin/invites", {
+      const badSignature = await worker.fetch(new Request("https://rookery.test/admin/invites", {
         method: "POST",
         headers: { "Cf-Access-Jwt-Assertion": parts.join(".") },
       }));
@@ -1217,25 +1214,25 @@ describe("commons operator account takedown", () => {
       });
 
       const resolveHandle = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.body.handle!)}`,
+        `https://rookery.test/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(account.body.handle!)}`,
       );
       expect(resolveHandle.status).toBe(404);
 
       const wellKnown = await worker.fetch(
-        new Request("http://localhost/.well-known/atproto-did", {
+        new Request("https://rookery.test/.well-known/atproto-did", {
           headers: { host: account.body.handle! },
         }),
       );
       expect(wellKnown.status).toBe(404);
 
       const record = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(account.did)}&collection=app.bsky.feed.post&rkey=${post.uri.split("/").pop()}`,
+        `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(account.did)}&collection=app.bsky.feed.post&rkey=${post.uri.split("/").pop()}`,
       );
       expect(record.status).toBe(404);
       expect(await record.json()).toMatchObject({ error: "RepoNotFound" });
 
       const repo = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(account.did)}`,
+        `https://rookery.test/xrpc/com.atproto.sync.getRepo?did=${encodeURIComponent(account.did)}`,
       );
       expect(repo.status).toBe(404);
       expect(await repo.json()).toMatchObject({ error: "RepoNotFound" });
@@ -1453,7 +1450,7 @@ describe("commons operator account takedown", () => {
       ).bind(account.did).first<{ active: number }>();
       expect(row?.active).toBe(1);
       const record = await worker.fetch(
-        `http://localhost/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(account.did)}&collection=app.bsky.feed.post&rkey=still-here`,
+        `https://rookery.test/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(account.did)}&collection=app.bsky.feed.post&rkey=still-here`,
       );
       expect(record.status).toBe(200);
       expect(await env.DIRECTORY.prepare(
