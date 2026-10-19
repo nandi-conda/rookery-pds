@@ -5,8 +5,8 @@
 The node must take many requests at once (the relay holds a subscribeRepos
 websocket open for good), so the function is @modal.concurrent; with Modal's
 default of one input per container, that websocket would block every other
-request. max_containers=1 because one node owns the celld fleet; min_containers=1
-keeps it up for the relay. Secrets: see docs/modal.md (minio-root + rookery-pds
+request. max_containers=1 because one node owns the celld fleet. It scales to zero
+when idle (never min_containers); the relay reconnects on the next crawl. Secrets: see docs/modal.md (minio-root + rookery-pds
 for start-modal-minio.sh). ROOKERY_REF picks the commit to run (default main).
 """
 
@@ -38,7 +38,6 @@ app = modal.App("rookery-pds")
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("minio-root"), modal.Secret.from_name("rookery-pds")],
-    min_containers=1,
     max_containers=1,
     memory=1024,
     timeout=24 * 3600,
