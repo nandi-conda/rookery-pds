@@ -19,7 +19,7 @@
     { "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] },
     { "tag": "v2", "new_sqlite_classes": ["SequencerDurableObject"] }
   ],
-  "d1_databases": [{ "binding": "DIRECTORY", "database_name": "rookery-directory" }],
+  "d1_databases": [{ "binding": "DIRECTORY", "database_name": "rookery-directory", "database_id": "8d675dbb-ba39-4c36-861f-fe0f15b9087b" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "rookery-blobs" }],
   "vars": {
     "ROOKERY_HOSTNAME": "rookery.latha.org",
