@@ -1,3 +1,4 @@
 .pixi/
 node_modules/
 output/
+.wrangler
