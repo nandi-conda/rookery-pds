@@ -4,7 +4,7 @@
 export { AccountDurableObject } from "./account-do";
 export { SequencerDurableObject } from "./sequencer-do";
 
-import { publishHandleDns } from "./handle-dns";
+import { HandleDnsError, publishHandleDns } from "./handle-dns";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -579,6 +579,10 @@ app.onError((err, c) => {
       { error: "DirectoryUnavailable", message: "Directory is initializing. Please retry." },
       503,
     );
+  }
+  if (err instanceof HandleDnsError) {
+    console.error(err.message);
+    return c.json({ error: "HandleDnsFailed", message: err.message }, 502);
   }
   console.error(`unhandled error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
   return c.json({ error: "InternalError", message: "Internal server error." }, 500);

@@ -3,6 +3,25 @@
 
 import type { Env } from "./types";
 
+/** Cloudflare refused a handle's TXT record; the message carries its status and error text. */
+export class HandleDnsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HandleDnsError";
+  }
+}
+
+type CloudflareResult = { success?: boolean; errors?: Array<{ code: number; message: string }>; result?: Array<{ id: string }> };
+
+async function cloudflareCall(what: string, res: Response): Promise<CloudflareResult> {
+  const body = await res.json<CloudflareResult>().catch(() => ({}) as CloudflareResult);
+  if (!res.ok || body.success === false) {
+    const detail = (body.errors ?? []).map((e) => `${e.code} ${e.message}`).join("; ");
+    throw new HandleDnsError(`Cloudflare DNS ${what} failed (${res.status})${detail ? `: ${detail}` : ""}`);
+  }
+  return body;
+}
+
 /**
  * Publish `_atproto.<handle>` TXT = `did=<did>` in Cloudflare DNS, so the
  * handle resolves over DNS without the handle host needing its own TLS cert.
@@ -14,7 +33,7 @@ export async function publishHandleDns(env: Env, handle: string, did: string): P
     return;
   }
   if (!env.CLOUDFLARE_ZONE_ID) {
-    throw new Error("CLOUDFLARE_ZONE_ID is required when CLOUDFLARE_DNS_TOKEN is set");
+    throw new HandleDnsError("CLOUDFLARE_ZONE_ID is required when CLOUDFLARE_DNS_TOKEN is set");
   }
   const base = `https://api.cloudflare.com/client/v4/zones/${env.CLOUDFLARE_ZONE_ID}/dns_records`;
   const headers = {
@@ -24,16 +43,15 @@ export async function publishHandleDns(env: Env, handle: string, did: string): P
   const name = `_atproto.${handle}`;
   const record = JSON.stringify({ type: "TXT", name, content: `"did=${did}"`, ttl: 300 });
 
-  const listRes = await fetch(`${base}?type=TXT&name=${encodeURIComponent(name)}`, { headers });
-  const list = await listRes.json<{ success: boolean; result: Array<{ id: string }> }>();
-  if (!listRes.ok || !list.success) {
-    throw new Error(`Cloudflare DNS lookup for ${name} failed (${listRes.status})`);
-  }
-  const existing = list.result[0];
-  const res = existing
-    ? await fetch(`${base}/${existing.id}`, { method: "PUT", headers, body: record })
-    : await fetch(base, { method: "POST", headers, body: record });
-  if (!res.ok) {
-    throw new Error(`Cloudflare DNS write for ${name} failed (${res.status})`);
-  }
+  const list = await cloudflareCall(
+    `lookup for ${name}`,
+    await fetch(`${base}?type=TXT&name=${encodeURIComponent(name)}`, { headers }),
+  );
+  const existing = list.result?.[0];
+  await cloudflareCall(
+    `write for ${name}`,
+    existing
+      ? await fetch(`${base}/${existing.id}`, { method: "PUT", headers, body: record })
+      : await fetch(base, { method: "POST", headers, body: record }),
+  );
 }
