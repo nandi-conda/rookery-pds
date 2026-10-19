@@ -33,6 +33,18 @@ import {
 } from "./directory";
 import type { InviteListState } from "./directory";
 import { isReservedOrBlocked } from "./handle-policy";
+import {
+  AGENT_COLLECTION,
+  InvalidAgentRecordError,
+  applyAgentIndex,
+  clampListAgentsLimit,
+  collectAgentWrites,
+  decodeAgentCursor,
+  deleteAgentsForDid,
+  encodeAgentCursor,
+  listAgents,
+  type AgentWrite,
+} from "./agentbus";
 import { renderLandingPage } from "./landing";
 import {
   buildAuthorizationServerMetadata,
@@ -374,6 +386,20 @@ let hasRequestedCrawl = false;
 function publicRequestUrl(c: { env: Env; req: { url: string } }): string {
   const parsed = new URL(c.req.url);
   return `https://${c.env.ROOKERY_HOSTNAME}${parsed.pathname}${parsed.search}`;
+}
+
+/** Validate dev.agentbus.agent writes up front; a Response means reject with 400. */
+function checkAgentWrites(
+  writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
+): AgentWrite[] | Response {
+  try {
+    return collectAgentWrites(writes);
+  } catch (err) {
+    if (err instanceof InvalidAgentRecordError) {
+      return Response.json({ error: "InvalidRecord", message: err.message }, { status: 400 });
+    }
+    throw err;
+  }
 }
 
 type DpopAuthResult = {
@@ -1271,6 +1297,7 @@ app.delete("/admin/accounts/:did", async (c) => {
   await deactivateAccount(c.env.DIRECTORY, account.did);
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(account.doId));
   const result = await stub.rpcTakedown(account.did);
+  await deleteAgentsForDid(c.env.DIRECTORY, account.did);
 
   const claims = c.get("accessClaims");
   const actor = typeof claims.email === "string" && claims.email.length > 0
@@ -1461,6 +1488,7 @@ app.post("/api/signup", async (c) => {
       signingKey,
       rotationKey,
       env.ROOKERY_PLC_URL,
+      env.ROOKERY_AGENTBUS_ENDPOINT,
     );
 
     const doId = env.ACCOUNT.newUniqueId();
@@ -1569,6 +1597,7 @@ app.post("/xrpc/com.atproto.identity.updateHandle", async (c) => {
     `https://${c.env.ROOKERY_HOSTNAME}`,
     (bytes) => stub.rpcSignWithRotationKey(bytes),
     c.env.ROOKERY_PLC_URL,
+    c.env.ROOKERY_AGENTBUS_ENDPOINT,
   );
   await stub.rpcSetHandle(checked.handle);
   await updateAccountHandle(c.env.DIRECTORY, did, checked.handle);
@@ -1634,6 +1663,7 @@ app.post("/operator/identity/sync", async (c) => {
     `https://${c.env.ROOKERY_HOSTNAME}`,
     (bytes) => stub.rpcSignWithRotationKey(bytes),
     c.env.ROOKERY_PLC_URL,
+    c.env.ROOKERY_AGENTBUS_ENDPOINT,
   );
   await stub.rpcSetHandle(checked.handle);
   await updateAccountHandle(c.env.DIRECTORY, body.did, checked.handle);
@@ -1826,6 +1856,35 @@ app.get("/xrpc/com.atproto.server.describeServer", async (c) => {
     contact: {},
     accounts: countResult?.count ?? 0,
   });
+});
+
+// GET /xrpc/dev.agentbus.listAgents (public)
+// Every dev.agentbus.agent record on active accounts of this PDS, optionally
+// filtered by repo DID, capability tag, or task class NSID.
+app.get("/xrpc/dev.agentbus.listAgents", async (c) => {
+  const limit = clampListAgentsLimit(c.req.query("limit"));
+  if (limit === null) {
+    return c.json({ error: "InvalidRequest", message: "limit must be a positive integer" }, 400);
+  }
+  const cursorParam = c.req.query("cursor");
+  const cursor = cursorParam ? decodeAgentCursor(cursorParam) : undefined;
+  if (cursor === null) {
+    return c.json({ error: "InvalidRequest", message: "Invalid cursor" }, 400);
+  }
+
+  await initDirectory(c.env.DIRECTORY);
+  const agents = await listAgents(c.env.DIRECTORY, {
+    did: c.req.query("did") || undefined,
+    capability: c.req.query("capability") || undefined,
+    taskClass: c.req.query("taskClass") || undefined,
+    limit,
+    cursor,
+  });
+  const body: { agents: typeof agents; cursor?: string } = { agents };
+  if (agents.length === limit) {
+    body.cursor = encodeAgentCursor(agents[agents.length - 1]!);
+  }
+  return c.json(body);
 });
 
 // GET /xrpc/com.atproto.server.getSession (DPoP auth required)
@@ -2058,8 +2117,15 @@ app.post("/xrpc/com.atproto.repo.createRecord", async (c) => {
     }
   }
 
+  const agentWrites = checkAgentWrites([
+    { $type: "com.atproto.repo.applyWrites#create", collection: body.collection, rkey: body.rkey, record: body.record },
+  ]);
+  if (agentWrites instanceof Response) return agentWrites;
+
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
-  return c.json(await stub.rpcCreateRecord(body.collection, body.rkey, body.record));
+  const result = await stub.rpcCreateRecord(body.collection, body.rkey, body.record);
+  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  return c.json(result);
 });
 
 // POST /xrpc/com.atproto.repo.putRecord
@@ -2112,8 +2178,15 @@ app.post("/xrpc/com.atproto.repo.putRecord", async (c) => {
     }
   }
 
+  const agentWrites = checkAgentWrites([
+    { $type: "com.atproto.repo.applyWrites#update", collection: body.collection, rkey: body.rkey, record: body.record },
+  ]);
+  if (agentWrites instanceof Response) return agentWrites;
+
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
-  return c.json(await stub.rpcPutRecord(body.collection, body.rkey, body.record));
+  const result = await stub.rpcPutRecord(body.collection, body.rkey, body.record);
+  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  return c.json(result);
 });
 
 // POST /xrpc/com.atproto.repo.deleteRecord
@@ -2167,7 +2240,11 @@ app.post("/xrpc/com.atproto.repo.deleteRecord", async (c) => {
   }
 
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
-  return c.json(await stub.rpcDeleteRecord(body.collection, body.rkey));
+  const result = await stub.rpcDeleteRecord(body.collection, body.rkey);
+  if (body.collection === AGENT_COLLECTION) {
+    await applyAgentIndex(c.env.DIRECTORY, did, [{ kind: "delete", rkey: body.rkey }]);
+  }
+  return c.json(result);
 });
 
 // POST /xrpc/com.atproto.repo.applyWrites
@@ -2220,8 +2297,13 @@ app.post("/xrpc/com.atproto.repo.applyWrites", async (c) => {
     }
   }
 
+  const agentWrites = checkAgentWrites(body.writes);
+  if (agentWrites instanceof Response) return agentWrites;
+
   const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
-  return c.json(await stub.rpcApplyWrites(body.writes));
+  const result = await stub.rpcApplyWrites(body.writes);
+  await applyAgentIndex(c.env.DIRECTORY, did, agentWrites);
+  return c.json(result);
 });
 
 // GET /xrpc/com.atproto.sync.getBlob (public)

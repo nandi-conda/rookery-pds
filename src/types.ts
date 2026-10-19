@@ -32,6 +32,8 @@ export interface Env {
   CLOUDFLARE_DNS_TOKEN?: string;
   /** Cloudflare zone holding ROOKERY_HANDLE_DOMAIN. */
   CLOUDFLARE_ZONE_ID?: string;
+  /** agent-bus endpoint (e.g. "ircs://irc.freeq.at:6697") written as the `#agentbus` DID service; unset omits it. */
+  ROOKERY_AGENTBUS_ENDPOINT?: string;
   /** Bearer token for /operator/* routes; unset disables them. */
   ROOKERY_OPERATOR_TOKEN?: string;
   /** HMAC secret for stateless rotating DPoP nonces. */

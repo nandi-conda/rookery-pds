@@ -134,6 +134,7 @@ Before deploying, create and bind the production D1 database and R2 bucket, then
 | `ROOKERY_HANDLE_DOMAIN` | Handle suffix, e.g. `.pds.example.com` |
 | `ROOKERY_PLC_URL` | PLC directory, typically `https://plc.directory` |
 | `ROOKERY_RELAY_HOSTS` | Optional comma-separated relay hostnames for crawl requests |
+| `ROOKERY_AGENTBUS_ENDPOINT` | Optional agent-bus endpoint (e.g. `ircs://irc.freeq.at:6697`) written as the `#agentbus` service in each new DID document; `/operator/identity/sync` adds it to existing ones |
 
 You also need:
 - A **wildcard DNS record** `*.pds.example.com` pointing to Cloudflare, plus a matching route pattern in `wrangler.toml` — this enables AT Protocol handle verification via `/.well-known/atproto-did`
@@ -219,6 +220,14 @@ For authenticated writes, agents reuse the `wm+jwt` access token with a fresh `d
 | POST | `/xrpc/com.atproto.repo.deleteRecord` | DPoP | Delete a record |
 | POST | `/xrpc/com.atproto.repo.applyWrites` | DPoP | Batch write operations |
 | POST | `/xrpc/com.atproto.repo.uploadBlob` | DPoP | Upload a blob |
+
+### agent-bus registry
+
+`dev.agentbus.agent` is the one collection rookery validates: one record per agent, `rkey` equal to the agent's `name` (a D-Bus name element, `[A-Za-z_][A-Za-z0-9_]{0,63}`), with `createdAt` and optional `description`, `capabilities`, `taskClasses`, `interfaces`, `endpoint`, `transportKey` (`did:key:`) and `freeq` (`{server, channel?, did?}`). Malformed records are rejected with `InvalidRecord`. Valid ones are indexed so brokers can find agents across the PDS in one call.
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/xrpc/dev.agentbus.listAgents` | no | Agents on active accounts; filter by `did`, `capability` or `taskClass`; `limit` (max 100) and `cursor` |
 
 ### sync
 

@@ -12,17 +12,27 @@ export type GenesisOperation = {
       type: "AtprotoPersonalDataServer";
       endpoint: string;
     };
+    /** `#agentbus` in the DID document: where this DID's agent-bus agents are reachable. */
+    agentbus?: {
+      type: "AgentBusEndpoint";
+      endpoint: string;
+    };
   };
   prev: null;
 };
 
 export type SignedGenesisOperation = GenesisOperation & { sig: string };
 
+function agentbusService(endpoint: string | undefined): Pick<GenesisOperation["services"], "agentbus"> {
+  return endpoint ? { agentbus: { type: "AgentBusEndpoint", endpoint } } : {};
+}
+
 export function buildUnsignedGenesisOp(
   handle: string,
   hostname: string,
   signingKeypair: Keypair,
   rotationKeypair: Keypair,
+  agentbusEndpoint?: string,
 ): GenesisOperation {
   return {
     type: "plc_operation",
@@ -34,6 +44,7 @@ export function buildUnsignedGenesisOp(
         type: "AtprotoPersonalDataServer",
         endpoint: `https://${hostname}`,
       },
+      ...agentbusService(agentbusEndpoint),
     },
     prev: null,
   };
@@ -60,12 +71,14 @@ export async function createPlcDid(
   signingKeypair: Keypair,
   rotationKeypair: Keypair,
   plcUrl: string,
+  agentbusEndpoint?: string,
 ): Promise<string> {
   const unsignedOp = buildUnsignedGenesisOp(
     handle,
     hostname,
     signingKeypair,
     rotationKeypair,
+    agentbusEndpoint,
   );
   const { signedOp, did } = await signGenesisOp(unsignedOp, rotationKeypair);
   const res = await fetch(`${plcUrl}/${did}`, {
@@ -100,7 +113,7 @@ type PlcOperation = Omit<GenesisOperation, "prev"> & { prev: string | null; sig?
 /**
  * Point a did:plc identity at a handle and PDS endpoint: fetch the latest
  * operation from the PLC directory, replace alsoKnownAs and the atproto_pds
- * endpoint, and submit an update signed by the account's rotation key (held
+ * endpoint (and the agentbus endpoint, when one is configured), and submit an update signed by the account's rotation key (held
  * by the Account DO, reached through `sign`).
  */
 export async function updatePlcHandle(
@@ -109,6 +122,7 @@ export async function updatePlcHandle(
   pdsEndpoint: string,
   signWithRotationKey: (bytes: Uint8Array) => Promise<{ keyDid: string; sig: Uint8Array }>,
   plcUrl: string,
+  agentbusEndpoint?: string,
 ): Promise<void> {
   const logRes = await fetch(`${plcUrl}/${did}/log/audit`);
   if (!logRes.ok) {
@@ -123,7 +137,11 @@ export async function updatePlcHandle(
   const unsignedOp: PlcOperation = {
     ...prevOp,
     alsoKnownAs: [`at://${handle}`],
-    services: { ...prevOp.services, atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: pdsEndpoint } },
+    services: {
+      ...prevOp.services,
+      atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: pdsEndpoint },
+      ...agentbusService(agentbusEndpoint),
+    },
     prev: last.cid,
   };
   const { keyDid, sig } = await signWithRotationKey(encode(unsignedOp));
