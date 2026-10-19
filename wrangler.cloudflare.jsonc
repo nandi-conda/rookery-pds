@@ -28,6 +28,6 @@
     "ROOKERY_RELAY_HOSTS": "bsky.network",
     // SHA-256 of the operator bearer token, not the token itself.
     "ROOKERY_OPERATOR_TOKEN_SHA256": "7c3aacbb8b5c41ca5c490230e44473ea10d240ae2f296f5efcb6e9295482754f"
-    // Secrets (pixi run cf-secrets): CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID, OAUTH_NONCE_SECRET.
+    // Secret (pixi run cf-secrets): OAUTH_NONCE_SECRET. No CLOUDFLARE_DNS_TOKEN: handle TXT records are written by hand.
   }
 }

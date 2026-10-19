@@ -43,8 +43,10 @@ flyctl = "*"
 cf-install = { cmd = "npm ci --ignore-scripts", inputs = ["package-lock.json"], outputs = ["node_modules/.package-lock.json"] }
 cf-login = { cmd = "node_modules/.bin/wrangler login", depends-on = ["cf-install"] }
 cf-deploy = { cmd = "node_modules/.bin/wrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
-# Prompts for CLOUDFLARE_DNS_TOKEN (Zone DNS Edit on latha.org) and CLOUDFLARE_ZONE_ID; generates OAUTH_NONCE_SECRET.
-cf-secrets = { cmd = "echo '1/2 CLOUDFLARE_DNS_TOKEN: API token with Zone DNS Edit on latha.org' && node_modules/.bin/wrangler secret put CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && echo '2/2 CLOUDFLARE_ZONE_ID: 32-hex Zone ID from the latha.org Overview sidebar' && node_modules/.bin/wrangler secret put CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc && node -e \"process.stdout.write(require('crypto').randomBytes(32).toString('hex'))\" | node_modules/.bin/wrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+# Generates OAUTH_NONCE_SECRET. Handle TXT records are written by hand (Cloudflare connector), so the Worker holds no DNS token.
+cf-secrets = { cmd = "node -e \"process.stdout.write(require('crypto').randomBytes(32).toString('hex'))\" | node_modules/.bin/wrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+# Removes the DNS token secrets from the Worker; signups then skip writing TXT records.
+cf-drop-dns-token = { cmd = "node_modules/.bin/wrangler secret delete CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && node_modules/.bin/wrangler secret delete CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
 cf-logs = { cmd = "node_modules/.bin/wrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
 # FROM=... TO=... ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host [did ...]
 migrate-host = "node scripts/migrate-host.mjs"

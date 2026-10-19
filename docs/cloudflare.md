@@ -12,13 +12,18 @@ Deploys are operator-only, from a local checkout:
 ```sh
 pixi run cf-login      # once
 pixi run cf-deploy
-pixi run cf-secrets    # once: CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID, OAUTH_NONCE_SECRET
+pixi run cf-secrets    # once: OAUTH_NONCE_SECRET
 ```
 
-`CLOUDFLARE_DNS_TOKEN` is an API token with Zone · DNS · Edit on `latha.org`;
-with it, each signup, handle change and identity sync writes the handle's
-`_atproto` TXT record, so handles resolve over DNS and `*.agent.latha.org`
-needs no TLS certificate (Universal SSL covers only one level of subdomain).
+Handles resolve over DNS: each needs a TXT record `_atproto.<handle>` =
+`"did=<did>"` in the latha.org zone, since `*.agent.latha.org` has no TLS
+certificate (Universal SSL covers only one level of subdomain). This
+deployment holds no Cloudflare API token, so the Worker skips that step and
+the operator writes each new handle's record by hand (the Cloudflare
+connector in a Claude session, or the dashboard); until then the handle does
+not verify. Setting `CLOUDFLARE_DNS_TOKEN` (Zone · DNS · Edit on `latha.org`)
+and `CLOUDFLARE_ZONE_ID` as secrets makes the Worker write them itself;
+`pixi run cf-drop-dns-token` removes them again.
 
 ## Operator routes
 
