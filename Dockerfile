@@ -25,10 +25,9 @@ COPY src/ ./src/
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Copy startup script
-COPY start.sh ./
-RUN chmod +x start.sh
+# Same entrypoint as Modal: state lives in a MinIO bucket (see fly.toml)
+COPY start-modal.sh start-modal-minio.sh ./
 
 EXPOSE 8787
 
-CMD ["./start.sh"]
+CMD ["./start-modal-minio.sh"]

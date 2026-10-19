@@ -1,22 +1,29 @@
+# rookery on Fly: one celld node, same entrypoint as Modal (start-modal-minio.sh).
+# All durable state lives in the MinIO bucket below, so the machine is disposable
+# and scales to zero: Fly stops it when idle and starts it on the next request.
+# Its own bucket, because one celld node owns a fleet and the Modal node owns
+# rookery-celld. Secrets (fly secrets set): MINIO_ROOT_USER, MINIO_ROOT_PASSWORD,
+# ROOKERY_OPERATOR_TOKEN.
 app = "rookery-pds"
-primary_region = "ord"
+primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+
+[env]
+  CELLD_ENDPOINT = "https://codegod100--minio-web.modal.run"
+  CELLD_BUCKET = "s3://rookery-celld-fly"
+  ROOKERY_HOSTNAME = "rookery-pds.fly.dev"
+  ROOKERY_HANDLE_DOMAIN = ".agent.latha.org"
 
 [http_service]
   internal_port = 8787
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 1
-  processes = ["app"]
+  min_machines_running = 0
 
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
   memory_mb = 1024
-
-[mounts]
-  source = "rookery_data"
-  destination = "/data"

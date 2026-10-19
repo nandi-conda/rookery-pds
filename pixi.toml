@@ -38,6 +38,9 @@ nodejs = ">=22"
 flyctl = "*"
 
 [tasks]
-deploy = "flyctl deploy --remote-only"
+# One machine only: a single celld node owns the bucket's fleet.
+deploy = "flyctl deploy --remote-only --ha=false"
+# MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=... ROOKERY_OPERATOR_TOKEN=... pixi run fly-secrets
+fly-secrets = "flyctl secrets set -a rookery-pds MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD ROOKERY_OPERATOR_TOKEN=$ROOKERY_OPERATOR_TOKEN"
 build = "pixi build"
 publish = "pixi publish --to https://prefix.dev/channels/nandi-testing"
