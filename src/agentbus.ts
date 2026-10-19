@@ -2,18 +2,18 @@
 // Copyright (c) 2026 sol pbc
 
 /**
- * agent-bus registry: `dev.agentbus.agent` records describe agents reachable
+ * agent-bus registry: `org.latha.agentbus.agent` records describe agents reachable
  * over agent-bus (a D-Bus mesh bridged between hosts). rookery stays
  * lexicon-agnostic for every other collection, but validates this one on write
  * and indexes it in D1 so brokers can discover agents across the whole PDS
- * with one bounded query (`dev.agentbus.listAgents`).
+ * with one bounded query (`org.latha.agentbus.listAgents`).
  *
  * One record per agent, keyed by the agent's bus name element (`rkey == name`).
  * An account may hold one agent (an agent with its own DID) or several (one
  * broker DID speaking for every agent on a desktop).
  */
 
-export const AGENT_COLLECTION = "dev.agentbus.agent";
+export const AGENT_COLLECTION = "org.latha.agentbus.agent";
 
 const AGENTS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS agentbus_agents (
@@ -268,14 +268,14 @@ export async function listAgents(db: D1Database, query: ListAgentsQuery): Promis
 }
 
 /*
- * `dev.agentbus.proc` records describe networked procs: deterministic bots
+ * `org.latha.agentbus.proc` records describe networked procs: deterministic bots
  * that host functions and publish topics on agent-bus. Each public proc has
  * its own account holding one record, keyed by the proc's name, that lists
  * what it provides and publishes. Validated and indexed like agents, served by
- * `dev.agentbus.listProcs`.
+ * `org.latha.agentbus.listProcs`.
  */
 
-export const PROC_COLLECTION = "dev.agentbus.proc";
+export const PROC_COLLECTION = "org.latha.agentbus.proc";
 
 const PROCS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS agentbus_procs (

@@ -70,12 +70,12 @@ async function enroll(prefix: string): Promise<Agent> {
 
 function agentRecord(name: string, extra: Record<string, unknown> = {}) {
   return {
-    $type: "dev.agentbus.agent",
+    $type: "org.latha.agentbus.agent",
     name,
     description: `${name} agent`,
     capabilities: ["plan"],
-    taskClasses: ["dev.agentbus.task.plan"],
-    interfaces: ["org.agentbus.Agent1"],
+    taskClasses: ["org.latha.agentbus.task.plan"],
+    interfaces: ["org.latha.agentbus.Agent1"],
     freeq: { server: "irc.freeq.at", channel: "#agentbus-test" },
     createdAt: new Date().toISOString(),
     ...extra,
@@ -83,7 +83,7 @@ function agentRecord(name: string, extra: Record<string, unknown> = {}) {
 }
 
 async function listAgents(query: string) {
-  const res = await worker.fetch(`${SERVICE_ORIGIN}/xrpc/dev.agentbus.listAgents?${query}`);
+  const res = await worker.fetch(`${SERVICE_ORIGIN}/xrpc/org.latha.agentbus.listAgents?${query}`);
   return { status: res.status, body: await res.json<{ agents: Array<{ did: string; name: string; uri: string; handle: string; value: Record<string, unknown> }>; cursor?: string; error?: string }>() };
 }
 
@@ -97,7 +97,7 @@ describe("validateAgentRecord", () => {
     ["digit-leading name", "1planner", agentRecord("1planner")],
     ["hyphenated name", "my-agent", agentRecord("my-agent")],
     ["missing createdAt", "planner", { ...agentRecord("planner"), createdAt: undefined }],
-    ["wrong $type", "planner", agentRecord("planner", { $type: "dev.agentbus.other" })],
+    ["wrong $type", "planner", agentRecord("planner", { $type: "org.latha.agentbus.other" })],
     ["non-string capability", "planner", agentRecord("planner", { capabilities: [1] })],
     ["transportKey not did:key", "planner", agentRecord("planner", { transportKey: "abc" })],
     ["freeq without server", "planner", agentRecord("planner", { freeq: { channel: "#x" } })],
@@ -107,7 +107,7 @@ describe("validateAgentRecord", () => {
   });
 });
 
-describe("dev.agentbus.agent registry", () => {
+describe("org.latha.agentbus.agent registry", () => {
   beforeAll(async () => {
     await initDirectory(env.DIRECTORY);
   });
@@ -116,18 +116,18 @@ describe("dev.agentbus.agent registry", () => {
     const host = await enroll("desk");
 
     expect((await host.call("putRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", rkey: "planner", record: agentRecord("planner"),
+      repo: host.did, collection: "org.latha.agentbus.agent", rkey: "planner", record: agentRecord("planner"),
     })).status).toBe(200);
     expect((await host.call("createRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", rkey: "coder",
-      record: agentRecord("coder", { capabilities: ["code.review"], taskClasses: ["dev.agentbus.task.code"] }),
+      repo: host.did, collection: "org.latha.agentbus.agent", rkey: "coder",
+      record: agentRecord("coder", { capabilities: ["code.review"], taskClasses: ["org.latha.agentbus.task.code"] }),
     })).status).toBe(200);
 
     let listed = await listAgents(`did=${encodeURIComponent(host.did)}`);
     expect(listed.status).toBe(200);
     expect(listed.body.agents.map((a) => a.name)).toEqual(["coder", "planner"]);
     expect(listed.body.agents[1]).toMatchObject({
-      uri: `at://${host.did}/dev.agentbus.agent/planner`,
+      uri: `at://${host.did}/org.latha.agentbus.agent/planner`,
       did: host.did,
       value: { name: "planner", freeq: { server: "irc.freeq.at" } },
     });
@@ -135,18 +135,18 @@ describe("dev.agentbus.agent registry", () => {
 
     listed = await listAgents(`did=${encodeURIComponent(host.did)}&capability=code.review`);
     expect(listed.body.agents.map((a) => a.name)).toEqual(["coder"]);
-    listed = await listAgents(`did=${encodeURIComponent(host.did)}&taskClass=dev.agentbus.task.plan`);
+    listed = await listAgents(`did=${encodeURIComponent(host.did)}&taskClass=org.latha.agentbus.task.plan`);
     expect(listed.body.agents.map((a) => a.name)).toEqual(["planner"]);
 
     expect((await host.call("putRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", rkey: "planner",
+      repo: host.did, collection: "org.latha.agentbus.agent", rkey: "planner",
       record: agentRecord("planner", { capabilities: ["plan", "code.review"] }),
     })).status).toBe(200);
     listed = await listAgents(`did=${encodeURIComponent(host.did)}&capability=code.review`);
     expect(listed.body.agents.map((a) => a.name)).toEqual(["coder", "planner"]);
 
     expect((await host.call("deleteRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", rkey: "coder",
+      repo: host.did, collection: "org.latha.agentbus.agent", rkey: "coder",
     })).status).toBe(200);
     listed = await listAgents(`did=${encodeURIComponent(host.did)}`);
     expect(listed.body.agents.map((a) => a.name)).toEqual(["planner"]);
@@ -157,8 +157,8 @@ describe("dev.agentbus.agent registry", () => {
     const bad = await host.call("applyWrites", {
       repo: host.did,
       writes: [
-        { $type: "com.atproto.repo.applyWrites#create", collection: "dev.agentbus.agent", rkey: "a", record: agentRecord("a") },
-        { $type: "com.atproto.repo.applyWrites#create", collection: "dev.agentbus.agent", rkey: "b", record: agentRecord("c") },
+        { $type: "com.atproto.repo.applyWrites#create", collection: "org.latha.agentbus.agent", rkey: "a", record: agentRecord("a") },
+        { $type: "com.atproto.repo.applyWrites#create", collection: "org.latha.agentbus.agent", rkey: "b", record: agentRecord("c") },
       ],
     });
     expect(bad.status).toBe(400);
@@ -168,8 +168,8 @@ describe("dev.agentbus.agent registry", () => {
     const good = await host.call("applyWrites", {
       repo: host.did,
       writes: [
-        { $type: "com.atproto.repo.applyWrites#create", collection: "dev.agentbus.agent", rkey: "a", record: agentRecord("a") },
-        { $type: "com.atproto.repo.applyWrites#create", collection: "dev.agentbus.agent", rkey: "b", record: agentRecord("b") },
+        { $type: "com.atproto.repo.applyWrites#create", collection: "org.latha.agentbus.agent", rkey: "a", record: agentRecord("a") },
+        { $type: "com.atproto.repo.applyWrites#create", collection: "org.latha.agentbus.agent", rkey: "b", record: agentRecord("b") },
         { $type: "com.atproto.repo.applyWrites#create", collection: "com.example.other", record: { text: "untouched" } },
       ],
     });
@@ -178,7 +178,7 @@ describe("dev.agentbus.agent registry", () => {
 
     await host.call("applyWrites", {
       repo: host.did,
-      writes: [{ $type: "com.atproto.repo.applyWrites#delete", collection: "dev.agentbus.agent", rkey: "a" }],
+      writes: [{ $type: "com.atproto.repo.applyWrites#delete", collection: "org.latha.agentbus.agent", rkey: "a" }],
     });
     expect((await listAgents(`did=${encodeURIComponent(host.did)}`)).body.agents.map((a) => a.name)).toEqual(["b"]);
   });
@@ -186,18 +186,18 @@ describe("dev.agentbus.agent registry", () => {
   it("rejects invalid agent records without writing them", async () => {
     const host = await enroll("bad");
     const noRkey = await host.call("createRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", record: agentRecord("planner"),
+      repo: host.did, collection: "org.latha.agentbus.agent", record: agentRecord("planner"),
     });
     expect(noRkey.status).toBe(400);
     expect(await noRkey.json()).toMatchObject({ error: "InvalidRecord" });
 
     const mismatch = await host.call("putRecord", {
-      repo: host.did, collection: "dev.agentbus.agent", rkey: "planner", record: agentRecord("coder"),
+      repo: host.did, collection: "org.latha.agentbus.agent", rkey: "planner", record: agentRecord("coder"),
     });
     expect(mismatch.status).toBe(400);
 
     const repoRead = await worker.fetch(
-      `${SERVICE_ORIGIN}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(host.did)}&collection=dev.agentbus.agent`,
+      `${SERVICE_ORIGIN}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(host.did)}&collection=org.latha.agentbus.agent`,
     );
     expect((await repoRead.json<{ records: unknown[] }>()).records).toEqual([]);
   });
@@ -207,7 +207,7 @@ describe("dev.agentbus.agent registry", () => {
     const two = await enroll("pageb");
     for (const host of [one, two]) {
       expect((await host.call("putRecord", {
-        repo: host.did, collection: "dev.agentbus.agent", rkey: "pager", record: agentRecord("pager", { capabilities: ["pager.test"] }),
+        repo: host.did, collection: "org.latha.agentbus.agent", rkey: "pager", record: agentRecord("pager", { capabilities: ["pager.test"] }),
       })).status).toBe(200);
     }
 
@@ -225,7 +225,7 @@ describe("dev.agentbus.agent registry", () => {
 
 function procRecord(name: string, extra: Record<string, unknown> = {}) {
   return {
-    $type: "dev.agentbus.proc",
+    $type: "org.latha.agentbus.proc",
     name,
     description: `${name} proc`,
     provides: [{ function: "weather.current" }, { function: "weather.forecast", regions: ["EU"] }],
@@ -237,7 +237,7 @@ function procRecord(name: string, extra: Record<string, unknown> = {}) {
 }
 
 async function listProcs(query: string) {
-  const res = await worker.fetch(`${SERVICE_ORIGIN}/xrpc/dev.agentbus.listProcs?${query}`);
+  const res = await worker.fetch(`${SERVICE_ORIGIN}/xrpc/org.latha.agentbus.listProcs?${query}`);
   return { status: res.status, body: await res.json<{ procs: Array<{ did: string; name: string; uri: string; value: Record<string, unknown> }>; cursor?: string }>() };
 }
 
@@ -249,7 +249,7 @@ describe("validateProcRecord", () => {
   it.each([
     ["rkey mismatch", "other", procRecord("weather")],
     ["missing createdAt", "weather", { ...procRecord("weather"), createdAt: undefined }],
-    ["wrong $type", "weather", procRecord("weather", { $type: "dev.agentbus.agent" })],
+    ["wrong $type", "weather", procRecord("weather", { $type: "org.latha.agentbus.agent" })],
     ["provides not array", "weather", procRecord("weather", { provides: "weather.current" })],
     ["function with spaces", "weather", procRecord("weather", { provides: [{ function: "weather current" }] })],
     ["topic pattern", "weather", procRecord("weather", { publishes: [{ topic: "weather.*" }] })],
@@ -260,7 +260,7 @@ describe("validateProcRecord", () => {
   });
 });
 
-describe("dev.agentbus.proc registry", () => {
+describe("org.latha.agentbus.proc registry", () => {
   beforeAll(async () => {
     await initDirectory(env.DIRECTORY);
   });
@@ -268,14 +268,14 @@ describe("dev.agentbus.proc registry", () => {
   it("indexes, filters and removes proc records", async () => {
     const proc = await enroll("wx");
     expect((await proc.call("putRecord", {
-      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather", record: procRecord("weather"),
+      repo: proc.did, collection: "org.latha.agentbus.proc", rkey: "weather", record: procRecord("weather"),
     })).status).toBe(200);
 
     let listed = await listProcs(`did=${encodeURIComponent(proc.did)}`);
     expect(listed.status).toBe(200);
     expect(listed.body.procs).toHaveLength(1);
     expect(listed.body.procs[0]).toMatchObject({
-      uri: `at://${proc.did}/dev.agentbus.proc/weather`,
+      uri: `at://${proc.did}/org.latha.agentbus.proc/weather`,
       name: "weather",
       value: { publishes: [{ topic: "weather.current" }, { topic: "weather.alert" }] },
     });
@@ -285,14 +285,14 @@ describe("dev.agentbus.proc registry", () => {
     expect(listed.body.procs).toEqual([]);
 
     const bad = await proc.call("putRecord", {
-      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather",
+      repo: proc.did, collection: "org.latha.agentbus.proc", rkey: "weather",
       record: procRecord("weather", { publishes: [{ topic: "" }] }),
     });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toMatchObject({ error: "InvalidRecord" });
 
     expect((await proc.call("deleteRecord", {
-      repo: proc.did, collection: "dev.agentbus.proc", rkey: "weather",
+      repo: proc.did, collection: "org.latha.agentbus.proc", rkey: "weather",
     })).status).toBe(200);
     expect((await listProcs(`did=${encodeURIComponent(proc.did)}`)).body.procs).toEqual([]);
     expect((await listProcs("limit=0")).status).toBe(400);

@@ -395,7 +395,7 @@ function publicRequestUrl(c: { env: Env; req: { url: string } }): string {
   return `https://${c.env.ROOKERY_HOSTNAME}${parsed.pathname}${parsed.search}`;
 }
 
-/** Validate dev.agentbus.agent, dev.agentbus.proc and service provider writes up front; a Response means reject with 400. */
+/** Validate org.latha.agentbus.agent, org.latha.agentbus.proc and service provider writes up front; a Response means reject with 400. */
 function checkAgentWrites(
   writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
 ): { agents: AgentWrite[]; procs: ProcWrite[] } | Response {
@@ -1876,10 +1876,10 @@ app.get("/xrpc/com.atproto.server.describeServer", async (c) => {
   });
 });
 
-// GET /xrpc/dev.agentbus.listAgents (public)
-// Every dev.agentbus.agent record on active accounts of this PDS, optionally
+// GET /xrpc/org.latha.agentbus.listAgents (public)
+// Every org.latha.agentbus.agent record on active accounts of this PDS, optionally
 // filtered by repo DID, capability tag, or task class NSID.
-app.get("/xrpc/dev.agentbus.listAgents", async (c) => {
+app.get("/xrpc/org.latha.agentbus.listAgents", async (c) => {
   const limit = clampListAgentsLimit(c.req.query("limit"));
   if (limit === null) {
     return c.json({ error: "InvalidRequest", message: "limit must be a positive integer" }, 400);
@@ -1905,10 +1905,10 @@ app.get("/xrpc/dev.agentbus.listAgents", async (c) => {
   return c.json(body);
 });
 
-// GET /xrpc/dev.agentbus.listProcs (public)
-// Every dev.agentbus.proc record on active accounts of this PDS, optionally
+// GET /xrpc/org.latha.agentbus.listProcs (public)
+// Every org.latha.agentbus.proc record on active accounts of this PDS, optionally
 // filtered by repo DID, provided function, or published topic.
-app.get("/xrpc/dev.agentbus.listProcs", async (c) => {
+app.get("/xrpc/org.latha.agentbus.listProcs", async (c) => {
   const limit = clampListAgentsLimit(c.req.query("limit"));
   if (limit === null) {
     return c.json({ error: "InvalidRequest", message: "limit must be a positive integer" }, 400);
