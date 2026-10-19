@@ -83,3 +83,7 @@ Flags:
 - `--kind`: one of `feat`, `fix`, `test`, `docs`, `refactor`, `chore`, `perf`, `style`
 - `--recap <ref>`: link to a prior cap this one derives from (e.g. after `vit remix`)
 - Body (stdin): short paragraph for another developer or agent who might adopt it
+
+## Modal: always scale to zero
+
+Modal services must always scale to zero. Never set `min_containers`, `keep_warm`, or anything else that leaves containers running when idle. Handle cold starts with timeouts and faster startup instead.
