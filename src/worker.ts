@@ -46,6 +46,7 @@ import {
   type AgentWrite,
   PROC_COLLECTION,
   applyProcIndex,
+  checkServiceWrites,
   collectProcWrites,
   deleteProcsForDid,
   listProcs,
@@ -394,11 +395,12 @@ function publicRequestUrl(c: { env: Env; req: { url: string } }): string {
   return `https://${c.env.ROOKERY_HOSTNAME}${parsed.pathname}${parsed.search}`;
 }
 
-/** Validate dev.agentbus.agent and dev.agentbus.proc writes up front; a Response means reject with 400. */
+/** Validate dev.agentbus.agent, dev.agentbus.proc and service provider writes up front; a Response means reject with 400. */
 function checkAgentWrites(
   writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
 ): { agents: AgentWrite[]; procs: ProcWrite[] } | Response {
   try {
+    checkServiceWrites(writes);
     return { agents: collectAgentWrites(writes), procs: collectProcWrites(writes) };
   } catch (err) {
     if (err instanceof InvalidAgentRecordError) {

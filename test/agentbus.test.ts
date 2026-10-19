@@ -8,7 +8,7 @@ import {
   worker,
 } from "./helpers";
 import { initDirectory } from "../src/directory";
-import { InvalidAgentRecordError, validateAgentRecord, validateProcRecord } from "../src/agentbus";
+import { InvalidAgentRecordError, validateAgentRecord, validateProcRecord, validateServiceRecord } from "../src/agentbus";
 
 const SERVICE_ORIGIN = `https://${env.ROOKERY_HOSTNAME}`;
 
@@ -310,5 +310,54 @@ describe("#agentbus DID service", () => {
       atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: "https://rookery.test" },
       agentbus: { type: "AgentBusEndpoint", endpoint: "ircs://irc.freeq.at:6697" },
     });
+  });
+});
+
+function serviceRecord(extra: Record<string, unknown> = {}) {
+  return {
+    $type: "dev.agentbus.weather",
+    endpoint: "https://codegod100--agentbus-weather.modal.run",
+    methods: ["dev.agentbus.weather.current"],
+    createdAt: new Date().toISOString(),
+    ...extra,
+  };
+}
+
+describe("validateServiceRecord", () => {
+  it("accepts a provider record, and http only on localhost", () => {
+    expect(validateServiceRecord("dev.agentbus.weather", "self", serviceRecord()).methods)
+      .toEqual(["dev.agentbus.weather.current"]);
+    expect(validateServiceRecord("dev.agentbus.weather", "self", serviceRecord({ endpoint: "http://localhost:8000" })))
+      .toBeTruthy();
+  });
+
+  it.each([
+    ["rkey other than self", "dev.agentbus.weather", "weather", serviceRecord()],
+    ["collection outside dev.agentbus", "dev.agentbus.Weather", "self", serviceRecord({ $type: undefined })],
+    ["wrong $type", "dev.agentbus.weather", "self", serviceRecord({ $type: "dev.agentbus.files" })],
+    ["plain http endpoint", "dev.agentbus.weather", "self", serviceRecord({ endpoint: "http://weather.example" })],
+    ["endpoint with query", "dev.agentbus.weather", "self", serviceRecord({ endpoint: "https://w.example/?x=1" })],
+    ["no methods", "dev.agentbus.weather", "self", serviceRecord({ methods: [] })],
+    ["method of another service", "dev.agentbus.weather", "self", serviceRecord({ methods: ["dev.agentbus.files.list"] })],
+    ["nested method", "dev.agentbus.weather", "self", serviceRecord({ methods: ["dev.agentbus.weather.a.b"] })],
+    ["missing createdAt", "dev.agentbus.weather", "self", serviceRecord({ createdAt: undefined })],
+  ])("rejects %s", (_label, collection, rkey, record) => {
+    expect(() => validateServiceRecord(collection, rkey, record)).toThrow(InvalidAgentRecordError);
+  });
+});
+
+describe("service provider records", () => {
+  it("stores valid records and rejects malformed ones", async () => {
+    const proc = await enroll("wxsvc");
+    const ok = await proc.call("putRecord", {
+      repo: proc.did, collection: "dev.agentbus.weather", rkey: "self", record: serviceRecord(),
+    });
+    expect(ok.status).toBe(200);
+    const bad = await proc.call("putRecord", {
+      repo: proc.did, collection: "dev.agentbus.weather", rkey: "self",
+      record: serviceRecord({ endpoint: "ftp://weather.example" }),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: "InvalidRecord" });
   });
 });

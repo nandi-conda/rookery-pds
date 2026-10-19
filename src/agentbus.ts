@@ -488,3 +488,93 @@ export async function listProcs(db: D1Database, query: ListProcsQuery): Promise<
     indexedAt: row.indexed_at,
   }));
 }
+
+/*
+ * Service provider records: a proc serving the XRPC methods of service
+ * `dev.agentbus.<service>` (e.g. `dev.agentbus.weather.current`) over HTTPS
+ * holds one record in the collection named for the service itself
+ * (`dev.agentbus.weather`), rkey `self`, naming its endpoint and the methods
+ * it implements. Brokers find providers through a relay's
+ * `com.atproto.sync.listReposByCollection`, so rookery validates these on
+ * write but does not index them.
+ */
+
+const SERVICE_RKEY = "self";
+const RESERVED_COLLECTIONS = new Set([AGENT_COLLECTION, PROC_COLLECTION]);
+// dev.agentbus.<one or more lowercase-led segments>
+const SERVICE_NSID_RE = /^dev\.agentbus(\.[a-z][A-Za-z0-9]{0,62})+$/;
+const METHOD_NAME_RE = /^[a-z][A-Za-z0-9]{0,62}$/;
+const MAX_ENDPOINT_LENGTH = 512;
+
+export interface ServiceRecord {
+  $type?: string;
+  endpoint: string;
+  methods: string[];
+  createdAt: string;
+  [key: string]: unknown;
+}
+
+/** Is `collection` a service provider collection (dev.agentbus.* minus agent/proc)? */
+export function isServiceCollection(collection: string): boolean {
+  return collection.startsWith("dev.agentbus.") && !RESERVED_COLLECTIONS.has(collection);
+}
+
+/** An https URL without credentials, query or fragment; plain http only on localhost (local dev). */
+function isServiceEndpoint(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > MAX_ENDPOINT_LENGTH) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password || url.search || url.hash) return false;
+  return url.protocol === "https:" ||
+    (url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1"));
+}
+
+/** Validate a provider record for service `collection`. Throws InvalidAgentRecordError. */
+export function validateServiceRecord(collection: string, rkey: string | undefined, record: unknown): ServiceRecord {
+  const fail = (message: string): never => {
+    throw new InvalidAgentRecordError(`Invalid ${collection} record: ${message}`);
+  };
+  if (!SERVICE_NSID_RE.test(collection) || collection.length > MAX_TAG_LENGTH) {
+    fail("collection must be dev.agentbus.<service>, e.g. dev.agentbus.weather");
+  }
+  if (rkey !== SERVICE_RKEY) fail(`rkey must be ${SERVICE_RKEY}`);
+  if (!record || typeof record !== "object" || Array.isArray(record)) fail("record must be an object");
+  const r = record as Record<string, unknown>;
+  if (new TextEncoder().encode(JSON.stringify(r)).length > MAX_RECORD_BYTES) {
+    fail(`record exceeds ${MAX_RECORD_BYTES} bytes`);
+  }
+  if (r.$type !== undefined && r.$type !== collection) fail(`$type must be ${collection}`);
+  if (!isServiceEndpoint(r.endpoint)) {
+    fail(`endpoint must be an https URL of at most ${MAX_ENDPOINT_LENGTH} characters, without query or fragment`);
+  }
+  const methods = r.methods;
+  if (!Array.isArray(methods) || methods.length === 0 || methods.length > MAX_LIST_ITEMS) {
+    fail(`methods must be a non-empty array of at most ${MAX_LIST_ITEMS} NSIDs`);
+  }
+  for (const method of methods as unknown[]) {
+    if (
+      typeof method !== "string" || !method.startsWith(`${collection}.`) ||
+      !METHOD_NAME_RE.test(method.slice(collection.length + 1))
+    ) {
+      fail(`methods[] must be NSIDs directly under ${collection}, e.g. ${collection}.current`);
+    }
+  }
+  if (typeof r.createdAt !== "string" || Number.isNaN(Date.parse(r.createdAt))) {
+    fail("createdAt must be a datetime string");
+  }
+  return r as ServiceRecord;
+}
+
+/** Validate the service provider records in a batch before any of it is committed. */
+export function checkServiceWrites(
+  writes: Array<{ $type: string; collection: string; rkey?: string; record?: unknown }>,
+): void {
+  for (const write of writes) {
+    if (!isServiceCollection(write.collection) || write.$type === "com.atproto.repo.applyWrites#delete") continue;
+    validateServiceRecord(write.collection, write.rkey, write.record);
+  }
+}
