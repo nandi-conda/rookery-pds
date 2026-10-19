@@ -256,10 +256,20 @@ export async function updateAccountHandle(db: D1Database, did: string, handle: s
   await db.prepare("UPDATE accounts SET handle = ? WHERE did = ?").bind(handle, did).run();
 }
 
-export async function handleExists(db: D1Database, handle: string): Promise<boolean> {
+/** The DID holding `handle` on this PDS, or null when it is free. */
+export async function handleOwner(db: D1Database, handle: string): Promise<string | null> {
   const row = await db.prepare(
-    "SELECT 1 FROM accounts WHERE handle = ? LIMIT 1",
-  ).bind(handle).first();
+    "SELECT did FROM accounts WHERE handle = ? LIMIT 1",
+  ).bind(handle).first<{ did: string }>();
+
+  return row?.did ?? null;
+}
+
+/** Whether this directory already has an account with this DID or this handle. */
+export async function accountExists(db: D1Database, did: string, handle: string): Promise<boolean> {
+  const row = await db.prepare(
+    "SELECT 1 FROM accounts WHERE did = ? OR handle = ? LIMIT 1",
+  ).bind(did, handle).first();
 
   return row !== null;
 }

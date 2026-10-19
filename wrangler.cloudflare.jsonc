@@ -1,0 +1,33 @@
+{
+  // rookery on Cloudflare Workers, at https://rookery.latha.org with handles
+  // under .agent.latha.org. Deploy with `pixi run cf-deploy` (operator only,
+  // see docs/cloudflare.md). wrangler creates the D1 database and R2 bucket by
+  // name on the first deploy, so neither needs an id here.
+  "name": "rookery-pds",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [{ "pattern": "rookery.latha.org", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACCOUNT", "class_name": "AccountDurableObject" },
+      { "name": "SEQUENCER", "class_name": "SequencerDurableObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["SequencerDurableObject"] }
+  ],
+  "d1_databases": [{ "binding": "DIRECTORY", "database_name": "rookery-directory" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "rookery-blobs" }],
+  "vars": {
+    "ROOKERY_HOSTNAME": "rookery.latha.org",
+    "ROOKERY_HANDLE_DOMAIN": ".agent.latha.org",
+    "ROOKERY_PLC_URL": "https://plc.directory",
+    "ROOKERY_RELAY_HOSTS": "bsky.network",
+    // SHA-256 of the operator bearer token, not the token itself.
+    "ROOKERY_OPERATOR_TOKEN_SHA256": "7c3aacbb8b5c41ca5c490230e44473ea10d240ae2f296f5efcb6e9295482754f"
+    // Secrets (pixi run cf-secrets): CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID, OAUTH_NONCE_SECRET.
+  }
+}

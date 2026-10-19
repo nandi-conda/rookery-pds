@@ -22,6 +22,13 @@ export interface AccountState {
   created_at: string;
 }
 
+export interface AccountDump {
+  state: AccountState;
+  blocks: Array<{ cid: string; bytes: Uint8Array; rev: string }>;
+  collections: string[];
+  blobs: Array<{ cid: string; mime_type: string; size: number; created_at: string }>;
+}
+
 export class SqliteRepoStorage
   extends ReadableBlockstore
   implements RepoStorage
@@ -290,6 +297,50 @@ export class SqliteRepoStorage
     return this.sql
       .exec("SELECT cid, bytes FROM blocks")
       .toArray() as Array<{ cid: string; bytes: ArrayBuffer }>;
+  }
+
+  /** Every row of this account, keys included, for moving it to another host. */
+  dump(): AccountDump {
+    const state = this.getState();
+    if (!state?.did) throw new Error("Account not provisioned");
+    return {
+      state,
+      blocks: this.sql.exec("SELECT cid, bytes, rev FROM blocks").toArray().map((row) => ({
+        cid: row.cid as string,
+        bytes: new Uint8Array(row.bytes as ArrayBuffer),
+        rev: row.rev as string,
+      })),
+      collections: this.getCollections(),
+      blobs: this.sql.exec("SELECT cid, mime_type, size, created_at FROM blobs").toArray() as unknown as AccountDump["blobs"],
+    };
+  }
+
+  /** Write a dump from another host into this (empty) account. */
+  restore(dump: AccountDump): void {
+    if (this.getState()?.did) throw new Error("Account already provisioned");
+    const s = dump.state;
+    this.sql.exec(
+      `UPDATE repo_state SET
+        did = ?, handle = ?, signing_key_hex = ?, signing_key_pub = ?,
+        rotation_key_hex = ?, rotation_key_pub = ?, jwk_thumbprint = ?,
+        root_cid = ?, rev = ?, prev_data_cid = ?, active = ?, created_at = ?
+      WHERE id = 1`,
+      s.did, s.handle, s.signing_key_hex, s.signing_key_pub,
+      s.rotation_key_hex, s.rotation_key_pub, s.jwk_thumbprint,
+      s.root_cid, s.rev, s.prev_data_cid, s.active, s.created_at,
+    );
+    for (const b of dump.blocks) {
+      this.sql.exec("INSERT INTO blocks (cid, bytes, rev) VALUES (?, ?, ?)", b.cid, b.bytes, b.rev);
+    }
+    for (const c of dump.collections) {
+      this.addCollection(c);
+    }
+    for (const b of dump.blobs) {
+      this.sql.exec(
+        "INSERT INTO blobs (cid, mime_type, size, created_at) VALUES (?, ?, ?, ?)",
+        b.cid, b.mime_type, b.size, b.created_at,
+      );
+    }
   }
 
   /**

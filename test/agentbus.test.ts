@@ -8,6 +8,7 @@ import {
   worker,
 } from "./helpers";
 import { initDirectory } from "../src/directory";
+import { decode as cborDecode } from "../src/cbor-compat";
 import { InvalidAgentRecordError, validateAgentRecord, validateProcRecord, validateServiceRecord } from "../src/agentbus";
 
 const SERVICE_ORIGIN = `https://${env.ROOKERY_HOSTNAME}`;
@@ -359,5 +360,111 @@ describe("service provider records", () => {
     });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toMatchObject({ error: "InvalidRecord" });
+  });
+});
+
+describe("moving an account between hosts", () => {
+  beforeAll(async () => {
+    await initDirectory(env.DIRECTORY);
+  });
+
+  const operator = { authorization: "Bearer test-operator-token" };
+
+  it("exports an account and imports it into a new Durable Object with the same DID and keys", async () => {
+    const proc = await enroll("mv");
+    expect((await proc.call("putRecord", {
+      repo: proc.did, collection: "org.latha.agentbus.proc", rkey: "weather", record: procRecord("weather"),
+    })).status).toBe(200);
+    const blobRes = await proc.call("uploadBlob", { hello: "blob" });
+    expect(blobRes.status).toBe(200);
+    const { blob } = await blobRes.json<{ blob: { ref: { $link: string } } }>();
+
+    const exportUrl = `${SERVICE_ORIGIN}/operator/account/export?did=${encodeURIComponent(proc.did)}`;
+    expect((await worker.fetch(exportUrl)).status).toBe(403);
+    expect((await worker.fetch(exportUrl, { headers: { authorization: "Bearer wrong" } })).status).toBe(403);
+    const exported = await worker.fetch(exportUrl, { headers: operator });
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toBe("application/cbor");
+    const bytes = await exported.arrayBuffer();
+    const before = await (await worker.fetch(
+      `${SERVICE_ORIGIN}/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(proc.did)}`,
+    )).json<{ cid: string; rev: string }>();
+
+    // The new host has never seen this account.
+    await env.DIRECTORY.prepare("DELETE FROM accounts WHERE did = ?").bind(proc.did).run();
+    await env.DIRECTORY.prepare("DELETE FROM agentbus_procs WHERE did = ?").bind(proc.did).run();
+    expect((await listProcs(`did=${encodeURIComponent(proc.did)}`)).body.procs).toEqual([]);
+
+    const importUrl = `${SERVICE_ORIGIN}/operator/account/import`;
+    expect((await worker.fetch(importUrl, { method: "POST", body: bytes })).status).toBe(403);
+    expect((await worker.fetch(importUrl, { method: "POST", headers: operator, body: "nope" })).status).toBe(400);
+    const imported = await worker.fetch(importUrl, { method: "POST", headers: operator, body: bytes });
+    expect(imported.status).toBe(200);
+    expect(await imported.json()).toMatchObject({ did: proc.did, rev: before.rev, blobs: 1, agents: 0, procs: 1 });
+    expect((await worker.fetch(importUrl, { method: "POST", headers: operator, body: bytes })).status).toBe(409);
+
+    expect(await (await worker.fetch(
+      `${SERVICE_ORIGIN}/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(proc.did)}`,
+    )).json()).toEqual(before);
+    expect((await listProcs(`did=${encodeURIComponent(proc.did)}`)).body.procs.map((p) => p.name)).toEqual(["weather"]);
+    const blobGet = await worker.fetch(
+      `${SERVICE_ORIGIN}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(proc.did)}&cid=${blob.ref.$link}`,
+    );
+    expect(blobGet.status).toBe(200);
+    expect(await blobGet.json()).toEqual({ hello: "blob" });
+
+    // The account's own credential and signing key still work on the new DO.
+    const write = await proc.call("putRecord", {
+      repo: proc.did, collection: "org.latha.agentbus.proc", rkey: "weather",
+      record: procRecord("weather", { description: "moved" }),
+    });
+    expect(write.status).toBe(200);
+    const after = await (await worker.fetch(
+      `${SERVICE_ORIGIN}/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(proc.did)}`,
+    )).json<{ rev: string }>();
+    expect(after.rev > before.rev).toBe(true);
+  });
+
+  it("re-points the DID at this host while keeping its own handle", async () => {
+    const proc = await enroll("sync");
+    const exported = cborDecode(new Uint8Array(await (await worker.fetch(
+      `${SERVICE_ORIGIN}/operator/account/export?did=${encodeURIComponent(proc.did)}`, { headers: operator },
+    )).arrayBuffer())) as { state: { handle: string; rotation_key_pub: string } };
+    const rotationKey = `did:key:${exported.state.rotation_key_pub}`;
+
+    let posted: { alsoKnownAs: string[]; services: { atproto_pds: { endpoint: string } } } | undefined;
+    const originalFetch = globalThis.fetch.bind(globalThis);
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (url === `https://plc.directory/${proc.did}/log/audit`) {
+        return Response.json([{
+          cid: "bafyreigenesis",
+          nullified: false,
+          operation: {
+            type: "plc_operation", rotationKeys: [rotationKey], verificationMethods: {},
+            alsoKnownAs: [`at://${exported.state.handle}`],
+            services: { atproto_pds: { type: "AtprotoPersonalDataServer", endpoint: "https://old.example" } },
+            prev: null, sig: "x",
+          },
+        }]);
+      }
+      if (url === `https://plc.directory/${proc.did}` && init?.method === "POST") {
+        posted = JSON.parse(init.body as string);
+        return new Response(null, { status: 200 });
+      }
+      return originalFetch(input as RequestInfo | URL, init);
+    });
+    try {
+      const synced = await worker.fetch(`${SERVICE_ORIGIN}/operator/identity/sync`, {
+        method: "POST",
+        headers: { ...operator, "content-type": "application/json" },
+        body: JSON.stringify({ did: proc.did, handle: exported.state.handle }),
+      });
+      expect(synced.status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(posted?.alsoKnownAs).toEqual([`at://${exported.state.handle}`]);
+    expect(posted?.services.atproto_pds.endpoint).toBe(SERVICE_ORIGIN);
   });
 });

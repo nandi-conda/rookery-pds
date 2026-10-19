@@ -7,13 +7,12 @@
 #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY  R2 S3 credentials
 #   CELLD_ENDPOINT                            https://<account>.r2.cloudflarestorage.com
 #   ROOKERY_HOSTNAME, ROOKERY_HANDLE_DOMAIN   public PDS host and handle suffix
-#   ROOKERY_OPERATOR_TOKEN                    bearer token for /operator/* routes
 #   CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID  optional: publish _atproto handle TXT records
 
 set -euo pipefail
 
 : "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}" "${CELLD_ENDPOINT:?}"
-: "${ROOKERY_HOSTNAME:?}" "${ROOKERY_HANDLE_DOMAIN:?}" "${ROOKERY_OPERATOR_TOKEN:?}"
+: "${ROOKERY_HOSTNAME:?}" "${ROOKERY_HANDLE_DOMAIN:?}"
 export AWS_EC2_METADATA_DISABLED=true
 export AWS_REGION=auto
 BUCKET="${CELLD_BUCKET:-s3://rookery-celld}"
@@ -48,7 +47,7 @@ cd /app
 node -e '
 const fs = require("fs");
 const cfg = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
-for (const k of ["ROOKERY_HOSTNAME", "ROOKERY_HANDLE_DOMAIN", "ROOKERY_OPERATOR_TOKEN", "CLOUDFLARE_DNS_TOKEN", "CLOUDFLARE_ZONE_ID"]) {
+for (const k of ["ROOKERY_HOSTNAME", "ROOKERY_HANDLE_DOMAIN", "CLOUDFLARE_DNS_TOKEN", "CLOUDFLARE_ZONE_ID"]) {
   if (process.env[k]) cfg.vars[k] = process.env[k];
 }
 fs.writeFileSync("wrangler.jsonc", JSON.stringify(cfg));

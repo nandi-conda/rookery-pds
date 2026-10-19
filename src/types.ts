@@ -34,8 +34,8 @@ export interface Env {
   CLOUDFLARE_ZONE_ID?: string;
   /** agent-bus endpoint (e.g. "ircs://irc.freeq.at:6697") written as the `#agentbus` DID service; unset omits it. */
   ROOKERY_AGENTBUS_ENDPOINT?: string;
-  /** Bearer token for /operator/* routes; unset disables them. */
-  ROOKERY_OPERATOR_TOKEN?: string;
+  /** Hex SHA-256 of the bearer token for /operator/* routes; unset disables them. */
+  ROOKERY_OPERATOR_TOKEN_SHA256?: string;
   /** HMAC secret for stateless rotating DPoP nonces. */
   OAUTH_NONCE_SECRET?: string;
   /** Optional knot admin endpoint for auto-adding newly enrolled rooks as members. */

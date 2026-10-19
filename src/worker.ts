@@ -5,16 +5,17 @@ export { AccountDurableObject } from "./account-do";
 export { SequencerDurableObject } from "./sequencer-do";
 
 import { publishHandleDns } from "./handle-dns";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import {
   DirectoryInitError,
+  accountExists,
   RepoNotFoundError,
   deactivateAccount,
   finalizeInviteSpend,
   finalizeTakedown,
   getEffectiveQuota,
-  handleExists,
+  handleOwner,
   initDirectory,
   insertAccount,
   isInviteAvailable,
@@ -51,7 +52,11 @@ import {
   deleteProcsForDid,
   listProcs,
   type ProcWrite,
+  validateAgentRecord,
+  validateProcRecord,
 } from "./agentbus";
+import type { AccountDurableObject, AccountExport } from "./account-do";
+import { decode as cborDecode, encode as cborEncode } from "./cbor-compat";
 import { renderLandingPage } from "./landing";
 import {
   buildAuthorizationServerMetadata,
@@ -558,10 +563,12 @@ async function requestCrawl(env: Env): Promise<void> {
   );
 }
 
-const app = new Hono<{
+type AppEnv = {
   Bindings: Env;
   Variables: { accessClaims: AccessJwtClaims };
-}>();
+};
+
+const app = new Hono<AppEnv>();
 
 // Never surface a bare 500. Any uncaught error becomes a structured JSON body;
 // a directory cold-start init failure is retryable, so it maps to 503.
@@ -1357,9 +1364,10 @@ type HandleCheck =
 
 /**
  * Apply this PDS's handle policy to a requested name (the label before
- * ROOKERY_HANDLE_DOMAIN). Shared by signup and updateHandle.
+ * ROOKERY_HANDLE_DOMAIN). Shared by signup, updateHandle and identity sync;
+ * `did` may keep the handle it already holds (identity sync re-points it).
  */
-async function checkHandleName(env: Env, name: string): Promise<HandleCheck> {
+async function checkHandleName(env: Env, name: string, did?: string): Promise<HandleCheck> {
   if (name.includes(".")) {
     return { error: "InvalidHandle", message: "Invalid handle: submit a single name without dots.", status: 400 };
   }
@@ -1380,7 +1388,8 @@ async function checkHandleName(env: Env, name: string): Promise<HandleCheck> {
   }
 
   await initDirectory(env.DIRECTORY);
-  if (await handleExists(env.DIRECTORY, handle)) {
+  const owner = await handleOwner(env.DIRECTORY, handle);
+  if (owner !== null && owner !== did) {
     return { error: "HandleTaken", message: "Handle is already taken. Choose another name.", status: 409 };
   }
 
@@ -1623,25 +1632,34 @@ app.post("/xrpc/com.atproto.identity.updateHandle", async (c) => {
   return c.body(null, 200);
 });
 
+// /operator/* routes need the bearer token whose SHA-256 is
+// ROOKERY_OPERATOR_TOKEN_SHA256 (hex), and don't exist when it is unset. Only the
+// digest is configured, so it can sit in plain vars. Returns the rejection, or
+// null to proceed.
+async function checkOperator(c: Context<AppEnv>): Promise<Response | null> {
+  const expected = c.env.ROOKERY_OPERATOR_TOKEN_SHA256?.toLowerCase();
+  if (!expected) {
+    return c.notFound();
+  }
+  const presented = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? "";
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(presented)));
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  // Both are 64 hex chars; compare in constant time so timing doesn't leak the digest.
+  let diff = hex.length ^ expected.length;
+  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (diff !== 0) {
+    return c.json({ error: "AccessDenied", message: "Access denied." }, 403);
+  }
+  return null;
+}
+
 // POST /operator/identity/sync (operator bearer token required)
 // Re-points an account's PLC identity at this PDS's hostname and sets its
 // handle. Used when the PDS moves hosts, since the account cannot reach the
 // new host through its DID document until this runs.
 app.post("/operator/identity/sync", async (c) => {
-  const expected = c.env.ROOKERY_OPERATOR_TOKEN;
-  if (!expected) {
-    return c.notFound();
-  }
-  const presented = extractBearerToken(c.req.header("authorization") ?? null) ?? "";
-  const enc = new TextEncoder();
-  // Compare fixed-length digests so the comparison time doesn't leak the token.
-  const [a, b] = (await Promise.all([
-    crypto.subtle.digest("SHA-256", enc.encode(presented)),
-    crypto.subtle.digest("SHA-256", enc.encode(expected)),
-  ])).map((d) => new Uint8Array(d));
-  if (a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) !== 0) {
-    return c.json({ error: "AccessDenied", message: "Access denied." }, 403);
-  }
+  const denied = await checkOperator(c);
+  if (denied) return denied;
 
   let body: { did?: unknown; handle?: unknown };
   try {
@@ -1668,7 +1686,7 @@ app.post("/operator/identity/sync", async (c) => {
     }
     throw err;
   }
-  const checked = await checkHandleName(c.env, requested.slice(0, -domain.length));
+  const checked = await checkHandleName(c.env, requested.slice(0, -domain.length), body.did);
   if ("error" in checked) {
     return c.json({ error: checked.error, message: checked.message }, checked.status);
   }
@@ -1687,6 +1705,111 @@ app.post("/operator/identity/sync", async (c) => {
   await updateAccountHandle(c.env.DIRECTORY, body.did, checked.handle);
   await publishHandleDns(c.env, checked.handle, body.did);
   return c.json({ did: body.did, handle: checked.handle, pds: `https://${c.env.ROOKERY_HOSTNAME}` });
+});
+
+// Every record of one collection in an account, across pages.
+async function listAllRecords(
+  stub: DurableObjectStub<AccountDurableObject>,
+  collection: string,
+): Promise<Array<{ rkey: string; value: unknown }>> {
+  const out: Array<{ rkey: string; value: unknown }> = [];
+  let cursor: string | undefined;
+  do {
+    const page = await stub.rpcListRecords(collection, { limit: 100, cursor }) as {
+      records: Array<{ uri: string; value: unknown }>;
+      cursor?: string;
+    };
+    for (const record of page.records) {
+      out.push({ rkey: record.uri.split("/").pop()!, value: record.value });
+    }
+    cursor = page.cursor;
+  } while (cursor);
+  return out;
+}
+
+// GET /operator/account/export?did=... (operator bearer token required)
+// The whole account as CBOR: repo rows, signing and rotation keys, blobs. The
+// keys make this as sensitive as the operator token itself; it exists so an
+// account can move to a new host with its DID unchanged (see docs/cloudflare.md).
+app.get("/operator/account/export", async (c) => {
+  const denied = await checkOperator(c);
+  if (denied) return denied;
+  const did = c.req.query("did");
+  if (!did) {
+    return c.json({ error: "InvalidRequest", message: "Missing required parameter: did" }, 400);
+  }
+  await initDirectory(c.env.DIRECTORY);
+  let doId: string;
+  try {
+    ({ doId } = await resolveRepo(did, c.env));
+  } catch (err) {
+    if (err instanceof RepoNotFoundError) {
+      return c.json({ error: "AccountNotFound", message: "No account for this DID" }, 404);
+    }
+    throw err;
+  }
+  const stub = c.env.ACCOUNT.get(c.env.ACCOUNT.idFromString(doId));
+  const exported = await stub.rpcExportAccount();
+  return c.body(cborEncode(exported) as Uint8Array<ArrayBuffer>, 200, { "Content-Type": "application/cbor" });
+});
+
+// POST /operator/account/import (operator bearer token required)
+// Recreates an account from /operator/account/export of another host in a new
+// Durable Object, with its directory row and agentbus index. The DID document
+// still names the old host until /operator/identity/sync runs.
+app.post("/operator/account/import", async (c) => {
+  const denied = await checkOperator(c);
+  if (denied) return denied;
+  let data: AccountExport;
+  try {
+    data = cborDecode(new Uint8Array(await c.req.arrayBuffer())) as AccountExport;
+  } catch {
+    return c.json({ error: "InvalidRequest", message: "Body must be a CBOR account export" }, 400);
+  }
+  const did = data?.state?.did;
+  if (typeof did !== "string" || !did.startsWith("did:") || typeof data.state.handle !== "string"
+    || !Array.isArray(data.blocks) || !Array.isArray(data.blobs) || !Array.isArray(data.collections)) {
+    return c.json({ error: "InvalidRequest", message: "Body must be a CBOR account export" }, 400);
+  }
+  await initDirectory(c.env.DIRECTORY);
+  if (await accountExists(c.env.DIRECTORY, did, data.state.handle)) {
+    return c.json({ error: "AccountExists", message: `${did} or ${data.state.handle} is already on this host` }, 409);
+  }
+
+  const doId = c.env.ACCOUNT.newUniqueId();
+  const stub = c.env.ACCOUNT.get(doId);
+  await stub.rpcImportAccount(data);
+  await insertAccount(c.env.DIRECTORY, {
+    did,
+    handle: data.state.handle,
+    doId: doId.toString(),
+    jwkThumbprint: data.state.jwk_thumbprint ?? undefined,
+  });
+  if (data.state.active !== 1) {
+    await deactivateAccount(c.env.DIRECTORY, did);
+  }
+
+  // Rebuild the agentbus index from the imported records.
+  const agents: AgentWrite[] = [];
+  for (const { rkey, value } of await listAllRecords(stub, AGENT_COLLECTION)) {
+    agents.push({ kind: "put", rkey, record: validateAgentRecord(rkey, value) });
+  }
+  const procs: ProcWrite[] = [];
+  for (const { rkey, value } of await listAllRecords(stub, PROC_COLLECTION)) {
+    procs.push({ kind: "put", rkey, record: validateProcRecord(rkey, value) });
+  }
+  await applyAgentIndex(c.env.DIRECTORY, did, agents);
+  await applyProcIndex(c.env.DIRECTORY, did, procs);
+
+  return c.json({
+    did,
+    handle: data.state.handle,
+    rev: data.state.rev,
+    blocks: data.blocks.length,
+    blobs: data.blobs.length,
+    agents: agents.length,
+    procs: procs.length,
+  });
 });
 
 // GET /xrpc/com.atproto.identity.resolveHandle

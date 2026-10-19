@@ -2,8 +2,7 @@
 # All durable state lives in the MinIO bucket below, so the machine is disposable
 # and scales to zero: Fly stops it when idle and starts it on the next request.
 # Its own bucket, because one celld node owns a fleet and the Modal node owns
-# rookery-celld. Secrets (fly secrets set): MINIO_ROOT_USER, MINIO_ROOT_PASSWORD,
-# ROOKERY_OPERATOR_TOKEN.
+# rookery-celld. Secrets (fly secrets set): MINIO_ROOT_USER, MINIO_ROOT_PASSWORD.
 app = "rookery-pds"
 primary_region = "iad"
 

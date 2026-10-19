@@ -66,6 +66,8 @@ export function defineRookeryWorkersConfig(options: RookeryWorkersConfigOptions 
               ROOKERY_HANDLE_DOMAIN: ".rookery.test",
               ROOKERY_PLC_URL: "https://plc.directory",
               OAUTH_NONCE_SECRET: "test-oauth-nonce-secret",
+              // sha256("test-operator-token")
+              ROOKERY_OPERATOR_TOKEN_SHA256: "21a41ec35ffe053418f5ebab652c9b4cb07a643a9100640d18b635e0df503928",
               ...options.bindings,
             },
           },

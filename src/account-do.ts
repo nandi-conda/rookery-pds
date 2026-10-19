@@ -17,7 +17,7 @@ import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID } from "@atproto/lex-data";
 import { jsonToLex, lexToJson } from "@atproto/lex-json";
 import { base64urlEncode } from "./auth";
-import { SqliteRepoStorage } from "./storage";
+import { SqliteRepoStorage, type AccountDump } from "./storage";
 import type { Env } from "./types";
 
 const CODEC_RAW = 0x55;
@@ -48,6 +48,10 @@ export interface BlobRef {
   ref: { $link: string };
   mimeType: string;
   size: number;
+}
+
+export interface AccountExport extends AccountDump {
+  blobBytes: Record<string, Uint8Array>;
 }
 
 export interface TakedownResult {
@@ -707,6 +711,38 @@ export class AccountDurableObject extends DurableObject<Env> {
     }
 
     return blocksToCarFile(root, allBlocks);
+  }
+
+  /** RPC: This account's rows and blob bytes, keys included, for moving it to another host. */
+  async rpcExportAccount(): Promise<AccountExport> {
+    await this.ensureStorageInitialized();
+    const dump = this.storage!.dump();
+    const blobBytes: Record<string, Uint8Array> = {};
+    for (const blob of dump.blobs) {
+      const object = await this.env.BLOBS.get(`${dump.state.did}/${blob.cid}`);
+      if (!object) throw new Error(`Blob ${blob.cid} is missing from storage`);
+      blobBytes[blob.cid] = new Uint8Array(await object.arrayBuffer());
+    }
+    return { ...dump, blobBytes };
+  }
+
+  /** RPC: Recreate an account exported from another host in this (new) DO, and announce it on the firehose. */
+  async rpcImportAccount(data: AccountExport): Promise<void> {
+    await this.ensureStorageInitialized();
+    for (const blob of data.blobs) {
+      const bytes = data.blobBytes[blob.cid];
+      if (!bytes) throw new Error(`Export is missing the bytes of blob ${blob.cid}`);
+      await this.env.BLOBS.put(`${data.state.did}/${blob.cid}`, bytes, {
+        httpMetadata: { contentType: blob.mime_type },
+      });
+    }
+    this.ctx.storage.transactionSync(() => this.storage!.restore(data));
+    this.repoInitialized = false;
+    await this.ensureRepoInitialized();
+
+    const seqStub = this.env.SEQUENCER.get(this.env.SEQUENCER.idFromName("sequencer"));
+    await seqStub.sequenceIdentity(data.state.did, data.state.handle);
+    await seqStub.sequenceAccount(data.state.did, data.state.active === 1, data.state.active === 1 ? null : "deactivated");
   }
 
   /** RPC: Upload a blob to R2 and track in metadata */

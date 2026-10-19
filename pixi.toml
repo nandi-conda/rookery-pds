@@ -38,9 +38,17 @@ nodejs = ">=22"
 flyctl = "*"
 
 [tasks]
+# Cloudflare Workers (operator only; `npx wrangler login` once). See docs/cloudflare.md.
+cf-install = "npm ci"
+cf-deploy = { cmd = "npx wrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+# Prompts for CLOUDFLARE_DNS_TOKEN (Zone DNS Edit on latha.org) and CLOUDFLARE_ZONE_ID; generates OAUTH_NONCE_SECRET.
+cf-secrets = { cmd = "npx wrangler secret put CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && npx wrangler secret put CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc && node -e \"process.stdout.write(require('crypto').randomBytes(32).toString('hex'))\" | npx wrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+cf-logs = { cmd = "npx wrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+# FROM=... TO=... ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host [did ...]
+migrate-host = "node scripts/migrate-host.mjs"
 # One machine only: a single celld node owns the bucket's fleet.
 deploy = "flyctl deploy --remote-only --ha=false"
-# MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=... ROOKERY_OPERATOR_TOKEN=... pixi run fly-secrets
-fly-secrets = "flyctl secrets set -a rookery-pds MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD ROOKERY_OPERATOR_TOKEN=$ROOKERY_OPERATOR_TOKEN"
+# MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=... pixi run fly-secrets
+fly-secrets = "flyctl secrets set -a rookery-pds MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD"
 build = "pixi build"
 publish = "pixi publish --to https://prefix.dev/channels/nandi-testing"
