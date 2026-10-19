@@ -40,7 +40,7 @@ flyctl = "*"
 [tasks]
 # Cloudflare Workers (operator only; `pixi run cf-login` once). See docs/cloudflare.md.
 # --ignore-scripts: deploying needs no native builds (wrangler's optional sharp would compile from source).
-cf-install = "npm ci --ignore-scripts"
+cf-install = { cmd = "npm ci --ignore-scripts", inputs = ["package-lock.json"], outputs = ["node_modules/.package-lock.json"] }
 cf-login = { cmd = "node_modules/.bin/wrangler login", depends-on = ["cf-install"] }
 cf-deploy = { cmd = "node_modules/.bin/wrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
 # Prompts for CLOUDFLARE_DNS_TOKEN (Zone DNS Edit on latha.org) and CLOUDFLARE_ZONE_ID; generates OAUTH_NONCE_SECRET.
