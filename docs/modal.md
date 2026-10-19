@@ -23,3 +23,11 @@ curl -X POST https://$ROOKERY_HOSTNAME/operator/identity/sync \
 
 This signs a PLC operation with the account's rotation key that sets the
 handle and the `atproto_pds` endpoint to this host.
+
+## Idle bucket traffic
+
+`start-modal.sh` stretches celld's idle timers (presence, lease, rebalance,
+waker, deploy poll) so an idle node touches the bucket once every 30 seconds
+instead of about once a second. 30s is celld's floor, so a bucket host with a
+longer scale-down window (Modal's default is 60s) still only reaches zero when
+rookery itself does. Override any of them through the environment.

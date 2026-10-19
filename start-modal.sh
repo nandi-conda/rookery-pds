@@ -18,6 +18,22 @@ export AWS_EC2_METADATA_DISABLED=true
 export AWS_REGION=auto
 BUCKET="${CELLD_BUCKET:-s3://rookery-celld}"
 
+# Idle-friendly celld timers for this single node (max_containers=1). Defaults
+# hit the bucket about once a second (lease renewals, presence scans, capacity
+# samples), which keeps a scale-to-zero bucket host such as the Modal MinIO
+# awake forever. These stretch every idle loop to one burst per 30s, the floor
+# celld allows (CELLD_PRESENCE_HEARTBEAT_MS max is 30000). The 90s lease still
+# lets a replacement node take over a hard-killed one well inside celld's
+# 240s recovery retry budget.
+export CELLD_PRESENCE_HEARTBEAT_MS="${CELLD_PRESENCE_HEARTBEAT_MS:-30000}"
+export CELLD_TTL_MS="${CELLD_TTL_MS:-90000}"
+# One node: nothing to rebalance (0 still samples capacity every 5s).
+export CELLD_REBALANCE_INTERVAL_MS="${CELLD_REBALANCE_INTERVAL_MS:-300000}"
+# rookery sets no Durable Object alarms.
+export CELLD_WAKER_TICK_MS="${CELLD_WAKER_TICK_MS:-300000}"
+# Each start runs `celld deploy` below, so the pointer poll can be slow.
+export CELLD_DEPLOY_POLL_S="${CELLD_DEPLOY_POLL_S:-300}"
+
 cd /app
 
 # Host-specific vars come from the environment so the image stays host-agnostic.
