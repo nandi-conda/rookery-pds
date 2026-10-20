@@ -693,3 +693,16 @@ async def test_takedown_does_not_call_the_hub_when_unconfigured(env, admin, invi
     rook = await invited("takedown-alert-disabled")
     assert (await takedown(admin, rook)).status == 200
     assert not [call for call in env.http.calls if call["url"].startswith("https://hub.test/")]
+
+
+async def test_admin_routes_404_when_access_is_unconfigured():
+    client = Client(Env(ROOKERY_VARIANT="commons"))
+    for method, path, body in (
+        ("GET", "/admin/invites", None),
+        ("POST", "/admin/invites", None),
+        ("PUT", "/admin/quotas/did:plc:unset", {"quota": 1}),
+        ("PUT", "/admin/config/invite_quota_default", {"value": 1}),
+        ("DELETE", "/admin/invites/some-token", None),
+        ("DELETE", "/admin/accounts/did:plc:unset", {"confirm": "unset.rookery.test"}),
+    ):
+        assert (await client.request(method, path, json_body=body)).status == 404, (method, path)

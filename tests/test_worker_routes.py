@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 sol pbc
+
+"""Routing concerns: CORS, documents, variant gating, and the repo read/write routes."""
+
+import pytest
+
+
+async def test_cors_on_get(client):
+    response = await client.get("/")
+    assert response.status == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+async def test_options_preflight(client):
+    response = await client.request("OPTIONS", "/xrpc/com.atproto.repo.getRecord", headers={
+        "origin": "https://example.com",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "Authorization, DPoP",
+    })
+    assert response.status == 204
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "GET" in response.headers["access-control-allow-methods"]
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "Authorization" in response.headers["access-control-allow-headers"]
+    assert "DPoP" in response.headers["access-control-allow-headers"]
+    assert response.headers["access-control-max-age"] == "86400"
+
+
+async def test_cors_on_post_errors(client):
+    response = await client.post("/xrpc/com.atproto.repo.createRecord", json_body={})
+    assert response.status == 401
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+async def test_serves_welcome_and_terms(client):
+    welcome = await client.get("/.well-known/welcome.md")
+    assert welcome.status == 200 and "WelcomeMat" in welcome.text
+    tos = await client.get("/tos")
+    assert tos.status == 200 and "Terms of Service" in tos.text
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("GET", "/roost", None),
+    ("POST", "/api/invites", None),
+    ("POST", "/admin/invites", None),
+    ("GET", "/admin/invites", None),
+    ("PUT", "/admin/quotas/did:plc:reference", {"quota": 1}),
+    ("PUT", "/admin/config/invite_quota_default", {"value": 1}),
+    ("DELETE", "/admin/accounts/did:plc:reference", {"confirm": "reference.rookery.test"}),
+])
+async def test_commons_routes_are_hidden_on_the_reference_variant(client, method, path, body):
+    assert (await client.request(method, path, json_body=body)).status == 404
+
+
+async def test_repo_read_and_sync_routes(client, enroll):
+    rook = await enroll()
+    assert (await rook.create("app.bsky.feed.post", {"text": "route post"}, "route-rkey")).status == 200
+
+    got = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": rook.handle, "collection": "app.bsky.feed.post", "rkey": "route-rkey"})
+    assert got.status == 200
+    assert got.json()["uri"] == f"at://{rook.did}/app.bsky.feed.post/route-rkey"
+    assert got.json()["value"]["text"] == "route post"
+
+    listed = await client.get("/xrpc/com.atproto.repo.listRecords", params={"repo": rook.handle, "collection": "app.bsky.feed.post"})
+    assert listed.status == 200
+    assert any(record["uri"].endswith("/route-rkey") for record in listed.json()["records"])
+
+    described = await client.get("/xrpc/com.atproto.repo.describeRepo", params={"repo": rook.handle})
+    assert described.status == 200
+    body = described.json()
+    assert body["did"] == rook.did and body["collections"] == ["app.bsky.feed.post"]
+    assert isinstance(body["handle"], str) and body["handleIsCorrect"] is True
+
+    latest = await client.get("/xrpc/com.atproto.sync.getLatestCommit", params={"did": rook.did})
+    assert latest.status == 200
+    assert isinstance(latest.json()["cid"], str) and isinstance(latest.json()["rev"], str)
+
+    status = await client.get("/xrpc/com.atproto.sync.getRepoStatus", params={"did": rook.did})
+    assert status.status == 200
+    assert {k: status.json()[k] for k in ("did", "active", "status")} == {"did": rook.did, "active": True, "status": "active"}
+
+    exported = await client.get("/xrpc/com.atproto.sync.getRepo", params={"did": rook.did})
+    assert exported.status == 200
+    assert exported.headers["content-type"] == "application/vnd.ipld.car"
+    assert exported.body
+
+
+async def test_custom_records_with_blob_links(client, enroll):
+    rook = await enroll()
+    upload = "/xrpc/com.atproto.repo.uploadBlob"
+    uploaded = await client.post(upload, body=b"diff --git a/file b/file\n", headers=dict(
+        rook.agent.auth_headers("POST", upload), **{"content-type": "application/gzip"}))
+    assert uploaded.status == 200
+    patch_blob = uploaded.json()["blob"]
+    created = await rook.create("sh.tangled.repo.pull", {
+        "$type": "sh.tangled.repo.pull",
+        "title": "Route pull",
+        "description": "Custom collection regression",
+        "source": {"repo": f"at://{rook.did}/sh.tangled.repo/source", "branch": "feature"},
+        "target": {"repo": f"at://{rook.did}/sh.tangled.repo/target", "branch": "main"},
+        "rounds": [{"createdAt": "2026-01-01T00:00:00Z", "patchBlob": patch_blob}],
+        "createdAt": "2026-01-01T00:00:00Z",
+    }, "pull-rkey")
+    assert created.status == 200, created.text
+
+    got = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": rook.handle, "collection": "sh.tangled.repo.pull", "rkey": "pull-rkey"})
+    assert got.json()["value"]["rounds"][0]["patchBlob"]["ref"] == {"$link": patch_blob["ref"]["$link"]}
+    listed = await client.get("/xrpc/com.atproto.repo.listRecords", params={"repo": rook.handle, "collection": "sh.tangled.repo.pull"})
+    pull = next(record for record in listed.json()["records"] if record["uri"].endswith("/pull-rkey"))
+    assert pull["value"]["rounds"][0]["patchBlob"]["ref"] == {"$link": patch_blob["ref"]["$link"]}
+
+
+async def test_authenticated_repo_write_routes(client, enroll):
+    rook = await enroll()
+    base = {"repo": rook.did, "collection": "app.bsky.feed.post", "rkey": "write-rkey"}
+    assert (await rook.post("/xrpc/com.atproto.repo.createRecord", dict(base, record={"text": "created"}))).status == 200
+    assert (await rook.post("/xrpc/com.atproto.repo.putRecord", dict(base, record={"text": "updated"}))).status == 200
+    applied = await rook.post("/xrpc/com.atproto.repo.applyWrites", {"repo": rook.did, "writes": [{
+        "$type": "com.atproto.repo.applyWrites#update", "collection": "app.bsky.feed.post", "rkey": "write-rkey",
+        "record": {"text": "batch-updated"},
+    }]})
+    assert applied.status == 200
+    result = applied.json()["results"][0]
+    assert result["$type"] == "com.atproto.repo.applyWrites#updateResult"
+    assert result["uri"] == f"at://{rook.did}/app.bsky.feed.post/write-rkey"
+    assert (await rook.post("/xrpc/com.atproto.repo.deleteRecord", base)).status == 200
+    got = await client.get("/xrpc/com.atproto.repo.getRecord", params=base)
+    assert got.status == 404
