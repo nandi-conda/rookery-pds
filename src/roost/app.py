@@ -483,9 +483,9 @@ async def oauth_par(request, env):
     except DpopError as exc:
         return reply({"error": "invalid_dpop_proof", "error_description": str(exc)}, 400)
     try:
-        form = await request.form()
+        form = await request.oauth_params()
     except (ValueError, UnicodeDecodeError):
-        return reply({"error": "invalid_request", "error_description": "Invalid form body"}, 400)
+        return reply({"error": "invalid_request", "error_description": "Invalid request body"}, 400)
 
     client_id = form.get("client_id")
     if not client_id:
@@ -661,9 +661,9 @@ async def oauth_token(request, env):
     except DpopError as exc:
         return oauth_error("invalid_dpop_proof", 400, str(exc))
     try:
-        form = await request.form()
+        form = await request.oauth_params()
     except (ValueError, UnicodeDecodeError):
-        return oauth_error("invalid_request", 400, "Invalid form body")
+        return oauth_error("invalid_request", 400, "Invalid request body")
 
     grant_type = form.get("grant_type")
     if not grant_type:
@@ -747,7 +747,7 @@ async def oauth_token(request, env):
 async def oauth_revoke(request, env):
     await store.init_oauth(env.db)
     try:
-        token = (await request.form()).get("token")
+        token = (await request.oauth_params()).get("token")
     except (ValueError, UnicodeDecodeError):
         return body_response()
     if not token:

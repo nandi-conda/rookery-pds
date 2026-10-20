@@ -68,6 +68,16 @@ class Request:
             return {}
         return dict(parse_qsl((await self.bytes()).decode("utf-8"), keep_blank_values=True))
 
+    async def oauth_params(self) -> dict[str, str]:
+        """An OAuth endpoint body: urlencoded, or a JSON object of strings (as @atproto/oauth-client sends)."""
+        content_type = (self.header("content-type") or "").lower()
+        if not content_type.startswith("application/json"):
+            return await self.form()
+        body = await self.json()
+        if not isinstance(body, dict) or not all(isinstance(value, str) for value in body.values()):
+            raise ValueError("OAuth JSON body must be an object of strings")
+        return body
+
 
 def _reject_constant(name: str):
     raise ValueError(f"invalid JSON constant {name}")

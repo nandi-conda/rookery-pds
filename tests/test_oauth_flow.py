@@ -12,8 +12,8 @@ from agent import Agent
 from conftest import ORIGIN, tos_text, unique
 from fakes import query_of
 from oauth_client import (
-    AUTHORIZE_PATH, AUTHORIZE_URL, CLIENT_ASSERTION_TYPE, REVOKE_PATH, EcKey, authorize_code, client_metadata,
-    consent_headers, do_par, exchange_code, new_client_id, oauth_headers, par_form, post_with_nonce, refresh,
+    AUTHORIZE_PATH, AUTHORIZE_URL, CLIENT_ASSERTION_TYPE, REVOKE_PATH, EcKey, Par, authorize_code, client_metadata,
+    code_form, consent_headers, do_par, exchange_code, new_client_id, oauth_headers, par_form, post_with_nonce, refresh,
     serve_metadata, token_success,
 )
 from roost.encoding import sha256_b64url
@@ -465,6 +465,46 @@ async def test_fragment_response_mode_and_prompt_create(client, enroll, register
     params = {key: values[0] for key, values in parse_qs(fragment).items()}
     assert params["code"] and params["state"] == par.state and params["iss"] == ORIGIN
     assert token_success(await exchange_code(client, par, params["code"]))["sub"]
+
+
+async def test_json_bodies_like_atproto_oauth_client(client, enroll, registered):
+    """@atproto/oauth-client posts PAR, token and revocation bodies as JSON."""
+    async def post_json(path, body, key):
+        url = ORIGIN + path
+        challenged = await client.post(path, json_body=body, headers={"dpop": key.dpop("POST", url)})
+        assert challenged.json()["error"] == "use_dpop_nonce", challenged.text
+        nonce = challenged.headers["dpop-nonce"]
+        return await client.post(path, json_body=body, headers={"dpop": key.dpop("POST", url, nonce=nonce)})
+
+    rook = await enroll()
+    client_id = registered()
+    form, verifier = par_form(client_id)
+    key = EcKey()
+    response = await post_json("/oauth/par", form, key)
+    assert response.status == 201, response.text
+    request_uri = response.json()["request_uri"]
+    par = Par(request_uri, key, client_id, form["redirect_uri"], verifier, form["state"])
+    code = await authorize_code(client, par, rook.agent)
+    tokens = token_success(await post_json("/oauth/token", code_form(par, code), key))
+    refreshed = token_success(await post_json(
+        "/oauth/token", {"grant_type": "refresh_token", "client_id": client_id, "refresh_token": tokens["refresh_token"]}, key,
+    ))
+    response = await client.post("/oauth/revoke", json_body={"token": refreshed["access_token"], "client_id": client_id})
+    assert response.status == 200
+    response = await refresh(client, par, refreshed["refresh_token"])
+    assert response.json()["error"] == "invalid_grant"
+
+
+async def test_par_rejects_non_string_json_values(client, registered):
+    form, _ = par_form(registered())
+    key = EcKey()
+    url = ORIGIN + "/oauth/par"
+    response = await client.post("/oauth/par", json_body={**form, "scope": ["atproto"]}, headers={"dpop": key.dpop("POST", url)})
+    nonce = response.headers["dpop-nonce"]
+    response = await client.post("/oauth/par", json_body={**form, "scope": ["atproto"]},
+                                 headers={"dpop": key.dpop("POST", url, nonce=nonce)})
+    assert response.status == 400
+    assert response.json() == {"error": "invalid_request", "error_description": "Invalid request body"}
 
 
 async def test_par_errors_say_what_is_wrong(client, registered):
