@@ -5,11 +5,11 @@
 export each from FROM, import it into TO, then have TO re-point the DID's PLC
 document (PDS endpoint and handle) at itself and ask the relays to crawl it.
 
-    FROM=https://old.example TO=https://new.example ROOKERY_OPERATOR_TOKEN=... \\
-      uv run python scripts/migrate_host.py [did ...]
+    FROM=https://old.example TO=https://new.example uv run python scripts/migrate_host.py [did ...]
 
 With no DIDs it moves every repo FROM lists. Both hosts must accept the same
-operator token. Re-running is safe: an account TO already has is only re-synced.
+operator token: ROOKERY_OPERATOR_TOKEN, or else the file
+`pixi run cf-operator-token` saved. Re-running is safe: an account TO already has is only re-synced.
 """
 
 import os
@@ -18,6 +18,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from operator_token import TOKEN_FILE
+
 RELAYS = ["https://bsky.network"]
 
 
@@ -25,6 +27,15 @@ def ok(response: httpx.Response, what: str) -> httpx.Response:
     if not response.is_success:
         raise SystemExit(f"{what}: {response.status_code} {response.text}")
     return response
+
+
+def operator_token() -> str:
+    token = os.environ.get("ROOKERY_OPERATOR_TOKEN")
+    if token:
+        return token
+    if TOKEN_FILE.exists():
+        return TOKEN_FILE.read_text().strip()
+    raise SystemExit(f"Set ROOKERY_OPERATOR_TOKEN or run `pixi run cf-operator-token` to create {TOKEN_FILE}")
 
 
 def list_dids(http: httpx.Client, source: str) -> list[str]:
@@ -39,10 +50,11 @@ def list_dids(http: httpx.Client, source: str) -> list[str]:
 
 
 def main() -> None:
-    source, target, token = os.environ.get("FROM"), os.environ.get("TO"), os.environ.get("ROOKERY_OPERATOR_TOKEN")
-    if not source or not target or not token:
-        print("FROM, TO and ROOKERY_OPERATOR_TOKEN are required", file=sys.stderr)
+    source, target = os.environ.get("FROM"), os.environ.get("TO")
+    if not source or not target:
+        print("FROM and TO are required", file=sys.stderr)
         raise SystemExit(2)
+    token = operator_token()
     source, target = source.rstrip("/"), target.rstrip("/")
     auth = {"authorization": f"Bearer {token}"}
 

@@ -23,8 +23,10 @@ cf-deploy = { cmd = "uv run pywrangler deploy -c wrangler.cloudflare.jsonc", dep
 cf-secrets = { cmd = "python3 -c \"import secrets; print(secrets.token_hex(32), end='')\" | uv run pywrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # Removes the DNS token secrets from the Worker; signups then skip writing TXT records.
 cf-drop-dns-token = { cmd = "uv run pywrangler secret delete CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && uv run pywrangler secret delete CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
+# New operator token: saved to ~/.config/roost/operator-token, its SHA-256 installed as a secret.
+cf-operator-token = { cmd = "uv run python scripts/operator_token.py | uv run pywrangler secret put ROOKERY_OPERATOR_TOKEN_SHA256 -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 cf-logs = { cmd = "uv run pywrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
-# FROM=... TO=... ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host [did ...]
+# FROM=... TO=... pixi run migrate-host [did ...]
 migrate-host = { cmd = "uv run python scripts/migrate_host.py", depends-on = ["install"] }
-# HOST=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run sync-identities [did ...]
+# pixi run sync-identities [did ...]  (HOST defaults to https://roost.latha.org)
 sync-identities = { cmd = "uv run python scripts/sync_identities.py", depends-on = ["install"] }

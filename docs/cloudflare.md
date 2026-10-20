@@ -29,7 +29,11 @@ and `CLOUDFLARE_ZONE_ID` as secrets makes the Worker write them itself;
 ## Operator routes
 
 `/operator/*` take `Authorization: Bearer <token>` and exist only when
-`ROOKERY_OPERATOR_TOKEN_SHA256` (the token's hex SHA-256, a plain var) is set.
+`ROOKERY_OPERATOR_TOKEN_SHA256` (the token's hex SHA-256, a secret) is set.
+`pixi run cf-operator-token` makes a new token, saves it to
+`~/.config/roost/operator-token` and installs its hash, replacing any old one.
+The scripts below read the token from that file when `ROOKERY_OPERATOR_TOKEN`
+is unset.
 
 - `GET /operator/account/export?did=` returns an account as CBOR: repo blocks,
   signing and rotation keys, blobs.
@@ -41,7 +45,7 @@ and `CLOUDFLARE_ZONE_ID` as secrets makes the Worker write them itself;
 ## Moving accounts between hosts
 
 ```sh
-FROM=https://old.host TO=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host
+FROM=https://old.host TO=https://roost.latha.org pixi run migrate-host
 ```
 
 exports every repo FROM lists, imports it into TO, syncs its PLC identity to TO
@@ -58,7 +62,7 @@ checked against it (DPoP `htu`, WelcomeMat `aud`), so enrolled agents keep
 working until they switch. Then point each DID at the new host:
 
 ```sh
-HOST=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run sync-identities
+pixi run sync-identities
 ```
 
 It re-signs each DID's PLC document with the new host and handle (skipping DIDs

@@ -28,9 +28,7 @@
     "ROOKERY_HOSTNAME": "rookery-pds-py.nandithebull.workers.dev",
     "ROOKERY_HANDLE_DOMAIN": ".rookery-pds-py.nandithebull.workers.dev",
     "ROOKERY_PLC_URL": "https://plc.directory",
-    "ROOKERY_RELAY_HOSTS": "",
-    // SHA-256 of the operator bearer token, not the token itself.
-    "ROOKERY_OPERATOR_TOKEN_SHA256": "7c3aacbb8b5c41ca5c490230e44473ea10d240ae2f296f5efcb6e9295482754f"
-    // Secret (pixi run cf-secrets): OAUTH_NONCE_SECRET. No CLOUDFLARE_DNS_TOKEN: handle TXT records are written by hand.
+    "ROOKERY_RELAY_HOSTS": ""
+    // Secrets: OAUTH_NONCE_SECRET (pixi run cf-secrets), ROOKERY_OPERATOR_TOKEN_SHA256 (pixi run cf-operator-token). No CLOUDFLARE_DNS_TOKEN: handle TXT records are written by hand.
   }
 }

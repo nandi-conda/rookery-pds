@@ -5,9 +5,10 @@
 each repo HOST lists, re-sign its PLC document (PDS endpoint and handle) with
 the account's rotation key, then ask the relays to crawl HOST.
 
-    HOST=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... \\
-      uv run python scripts/sync_identities.py [did ...]
+    uv run python scripts/sync_identities.py [did ...]
 
+HOST defaults to https://roost.latha.org. The operator token comes from
+ROOKERY_OPERATOR_TOKEN, or else the file `pixi run cf-operator-token` saved.
 With no DIDs it syncs every repo HOST lists. DIDs whose PLC document already
 names HOST are skipped, so re-running is safe.
 """
@@ -18,17 +19,14 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from migrate_host import RELAYS, list_dids, ok
+from migrate_host import RELAYS, list_dids, ok, operator_token
 
 PLC = "https://plc.directory"
 
 
 def main() -> None:
-    host, token = os.environ.get("HOST"), os.environ.get("ROOKERY_OPERATOR_TOKEN")
-    if not host or not token:
-        print("HOST and ROOKERY_OPERATOR_TOKEN are required", file=sys.stderr)
-        raise SystemExit(2)
-    host = host.rstrip("/")
+    host = os.environ.get("HOST", "https://roost.latha.org").rstrip("/")
+    token = operator_token()
     auth = {"authorization": f"Bearer {token}"}
 
     with httpx.Client(timeout=120) as http:
