@@ -6,6 +6,7 @@
 from .. import directory
 from ..encoding import sha256_b64url
 from .dpop import DpopError, validate_oauth_dpop_proof
+from .permission_sets import PermissionSetError, effective_scope
 from .store import get_token_with_session, init_oauth
 
 
@@ -33,4 +34,8 @@ async def resolve_oauth_access_token(access_token: str, dpop_jwt: str, method: s
         resolved = await directory.resolve_repo(db, row["did"])
     except directory.RepoNotFoundError as exc:
         raise InvalidOauthTokenError() from exc
-    return {"did": row["did"], "do_id": resolved["do_id"], "scope": row["scope"]}
+    try:
+        scope = await effective_scope(env, row["scope"], now)
+    except PermissionSetError as exc:
+        raise InvalidOauthTokenError() from exc
+    return {"did": row["did"], "do_id": resolved["do_id"], "scope": scope}

@@ -55,16 +55,16 @@ async def put_preferences(request, env):
 
 
 async def proxy_target(request, nsid: str) -> tuple[str, str] | None:
-    """(service DID for aud, endpoint) for a call, or None when nothing serves it."""
+    """(service ref "did#service", endpoint) for a call, or None when nothing serves it."""
     header = request.header("atproto-proxy")
     if header:
         did, _, fragment = header.partition("#")
         if not is_valid_did(did) or not fragment:
             raise XrpcError("InvalidRequest", "atproto-proxy must be a DID with a #service fragment")
-        return did, header
+        return header, header
     for prefix, (service, endpoint) in DEFAULT_SERVICES.items():
         if nsid.startswith(prefix):
-            return service.partition("#")[0], endpoint
+            return service, endpoint
     return None
 
 
@@ -77,17 +77,18 @@ async def forward(request, env):
     target = await proxy_target(request, nsid)
     if target is None:
         raise XrpcError("MethodNotImplemented", f"Method not implemented: {nsid}", 501)
-    aud, endpoint = target
+    service, endpoint = target
+    if auth["kind"] == "oauth":
+        denied = enforce_rpc_scope(auth["scope"], nsid, service)
+        if denied:
+            raise XrpcError("InsufficientScope", f"Scope does not permit {denied}", 403)
     if endpoint.startswith("did:"):
         resolved = await service_endpoint(env, endpoint)
         if not resolved:
             raise XrpcError("UpstreamFailure", f"Could not resolve proxy service {endpoint}", 502)
         endpoint = resolved
     headers = {name: request.header(name) for name in FORWARD_REQUEST_HEADERS if request.header(name)}
-    if auth["kind"] == "oauth":
-        denied = enforce_rpc_scope(auth["scope"], nsid, aud)
-        if denied:
-            raise XrpcError("InsufficientScope", f"Scope does not permit {denied}", 403)
+    aud = service.partition("#")[0]
     token = await env.account(auth["do_id"]).sign_service_auth(aud=aud, lxm=nsid, exp=int(time.time()) + 60)
     headers["authorization"] = f"Bearer {token['token']}"
     body = await request.bytes() if request.method == "POST" else None

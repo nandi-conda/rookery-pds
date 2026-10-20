@@ -3,6 +3,7 @@
 
 """OAuth end to end: PAR, consent, token, refresh, revoke, and resource access."""
 
+import json
 import time
 
 import pytest
@@ -16,6 +17,7 @@ from oauth_client import (
     serve_metadata, token_success,
 )
 from roost.encoding import sha256_b64url
+from roost.net import HttpResponse
 from roost.oauth import store
 
 CREATE = "/xrpc/com.atproto.repo.createRecord"
@@ -312,6 +314,78 @@ async def test_service_auth_requires_a_matching_rpc_scope(client, issue):
     assert {k: payload[k] for k in ("iss", "aud", "lxm", "exp")} == {"iss": token["sub"], "aud": aud, "lxm": lxm, "exp": exp}
     assert isinstance(payload["iat"], int) and isinstance(payload["jti"], str)
     assert signature
+
+
+COLIBRI_APPVIEW = "did:web:api.colibri.social#colibri_appview"
+
+
+def serve_permission_set(env, nsid: str, permissions: list) -> dict:
+    """Publish `nsid` the way lexicon resolution finds it: DNS TXT -> did:web -> PDS record."""
+    authority = "did:web:lex.colibri.test"
+    calls = {"record": 0}
+
+    def dns(method, url, headers, body):
+        answer = [{"name": "_lexicon.colibri.social", "type": 16, "data": f'"did={authority}"'}]
+        return HttpResponse(200, json.dumps({"Status": 0, "Answer": answer}).encode())
+
+    def did_doc(method, url, headers, body):
+        doc = {"id": authority, "service": [
+            {"id": "#atproto_pds", "type": "AtprotoPersonalDataServer", "serviceEndpoint": "https://lexpds.test"}]}
+        return HttpResponse(200, json.dumps(doc).encode())
+
+    def record(method, url, headers, body):
+        calls["record"] += 1
+        assert query_of(url) == {"repo": authority, "collection": "com.atproto.lexicon.schema", "rkey": nsid}
+        value = {"$type": "com.atproto.lexicon.schema", "lexicon": 1, "id": nsid,
+                 "defs": {"main": {"type": "permission-set", "permissions": permissions}}}
+        return HttpResponse(200, json.dumps({"uri": "at://x", "value": value}).encode())
+
+    env.http.routes["https://cloudflare-dns.com/dns-query"] = dns
+    env.http.routes["https://lex.colibri.test/.well-known/did.json"] = did_doc
+    env.http.routes["https://lexpds.test/xrpc/com.atproto.repo.getRecord"] = record
+    return calls
+
+
+async def test_include_scopes_expand_permission_sets(client, env, issue):
+    calls = serve_permission_set(env, "social.colibri.permissionAccount", [
+        {"type": "permission", "resource": "repo", "action": ["create", "update", "delete"],
+         "collection": ["social.colibri.actor.profile"]},
+        {"type": "permission", "resource": "rpc", "inheritAud": True, "lxm": ["social.colibri.actor.getData"]},
+    ])
+    appview_calls = []
+    env.http.routes["https://api.colibri.social/.well-known/did.json"] = lambda *_: HttpResponse(200, json.dumps({
+        "id": "did:web:api.colibri.social", "service": [
+            {"id": "#colibri_appview", "type": "ColibriAppView", "serviceEndpoint": "https://appview.colibri.test"}],
+    }).encode())
+    env.http.routes["https://appview.colibri.test/"] = lambda m, url, h, b: (
+        appview_calls.append((url, h)) or HttpResponse(200, b'{"ok":true}', {"content-type": "application/json"}))
+
+    scope = f"atproto include:social.colibri.permissionAccount?aud={COLIBRI_APPVIEW}"
+    _, par, token = await issue(scope)
+    assert token["scope"] == scope
+
+    response = await create_with_oauth(client, par, token, "social.colibri.actor.profile", "self")
+    assert response.status == 200, response.text
+    response = await create_with_oauth(client, par, token, "social.colibri.community.message", unique("m"))
+    assert response.status == 403 and response.json()["error"] == "InsufficientScope"
+
+    def proxied(lxm: str, service: str = COLIBRI_APPVIEW):
+        path = f"/xrpc/{lxm}"
+        headers = dict(oauth_headers(par.key, "GET", path, token["access_token"]), **{"atproto-proxy": service})
+        return client.get(path, headers=headers)
+
+    response = await proxied("social.colibri.actor.getData")
+    assert response.status == 200, response.text
+    assert appview_calls[0][0] == "https://appview.colibri.test/xrpc/social.colibri.actor.getData"
+    assert (await proxied("social.colibri.actor.listMutes")).status == 403
+    assert (await proxied("social.colibri.actor.getData", "did:web:api.colibri.social#other")).status == 403
+    assert calls["record"] == 1  # resolved once at PAR, then served from the D1 cache
+
+
+async def test_par_rejects_unresolvable_permission_sets(client, env, registered):
+    env.http.routes["https://cloudflare-dns.com/dns-query"] = lambda *_: HttpResponse(200, b'{"Status":3}')
+    await par_rejected(client, registered(), "invalid_scope",
+                       scope=f"atproto include:social.colibri.permissionAccount?aud={COLIBRI_APPVIEW}")
 
 
 async def test_deactivated_accounts_lose_resource_access_and_refresh(client, env, issue):

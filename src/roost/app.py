@@ -59,6 +59,7 @@ from .oauth.metadata import (
 )
 from .oauth.nonce import derive_dpop_nonce
 from .oauth.resource_server import InvalidOauthTokenError, resolve_oauth_access_token
+from .oauth.permission_sets import PermissionSetError, effective_scope
 from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_scope_string
 from .repo import RepoError
 from .syntax import InvalidHandleError, ensure_valid_handle, is_valid_did, is_valid_nsid
@@ -241,9 +242,16 @@ async def authenticate(request, env, method: str, oauth_token_error: bool = True
         raise AuthFailure(auth_failure(exc, oauth_token_error)) from exc
 
 
-def require_scope(auth: dict, op: str, collections: list[str]) -> None:
+WRITE_ACTIONS = {
+    "com.atproto.repo.applyWrites#create": "create",
+    "com.atproto.repo.applyWrites#update": "update",
+    "com.atproto.repo.applyWrites#delete": "delete",
+}
+
+
+def require_scope(auth: dict, op: str, writes: list[tuple[str, str]]) -> None:
     if auth["kind"] == "oauth":
-        denied = enforce_scope(auth["scope"], op, collections)
+        denied = enforce_scope(auth["scope"], op, writes)
         if denied:
             raise AuthFailure(error("InsufficientScope", f"Scope does not permit {denied}", 403))
 
@@ -501,6 +509,11 @@ async def oauth_par(request, env):
         return reply({"error": "invalid_request"}, 400)
     if not scope or not is_valid_scope_string(scope):
         return reply({"error": "invalid_scope"}, 400)
+    try:
+        # Resolve permission sets now, so an unresolvable include: fails the request up front.
+        await effective_scope(env, scope, now)
+    except PermissionSetError as exc:
+        return reply({"error": "invalid_scope", "error_description": str(exc)}, 400)
 
     request_uri = f"urn:ietf:params:oauth:request_uri:{random_b64url()}"
     params = {"response_type": "code"}
@@ -1375,7 +1388,7 @@ async def create_record(request, env):
     if not _present(body, "repo", "collection", "record"):
         return error("InvalidRequest", "Missing required fields: repo, collection, record", 400)
     _check_repo(body, auth)
-    require_scope(auth, "write", [body["collection"]])
+    require_scope(auth, "write", [(body["collection"], "create")])
     index = _check_agent_writes([{
         "$type": "com.atproto.repo.applyWrites#create", "collection": body["collection"],
         "rkey": body.get("rkey"), "record": body["record"],
@@ -1396,7 +1409,8 @@ async def put_record(request, env):
     if not _present(body, "repo", "collection", "rkey", "record"):
         return error("InvalidRequest", "Missing required fields: repo, collection, rkey, record", 400)
     _check_repo(body, auth)
-    require_scope(auth, "write", [body["collection"]])
+    # putRecord creates or replaces, so it needs both.
+    require_scope(auth, "write", [(body["collection"], "create"), (body["collection"], "update")])
     index = _check_agent_writes([{
         "$type": "com.atproto.repo.applyWrites#update", "collection": body["collection"],
         "rkey": body["rkey"], "record": body["record"],
@@ -1417,7 +1431,7 @@ async def delete_record(request, env):
     if not _present(body, "repo", "collection", "rkey"):
         return error("InvalidRequest", "Missing required fields: repo, collection, rkey", 400)
     _check_repo(body, auth)
-    require_scope(auth, "write", [body["collection"]])
+    require_scope(auth, "write", [(body["collection"], "delete")])
     result = await env.account(auth["do_id"]).delete_record(collection=body["collection"], rkey=body["rkey"])
     removal = [{"kind": "delete", "rkey": body["rkey"]}]
     if body["collection"] == agentbus.AGENT_COLLECTION:
@@ -1439,7 +1453,7 @@ async def apply_writes(request, env):
     if not all(isinstance(write, dict) for write in writes):
         return error("InvalidRequest", "Each write must be an object", 400)
     _check_repo(body, auth)
-    require_scope(auth, "write", [write.get("collection") for write in writes])
+    require_scope(auth, "write", [(write.get("collection"), WRITE_ACTIONS.get(write.get("$type"))) for write in writes])
     index = _check_agent_writes(writes)
     result = await env.account(auth["do_id"]).apply_writes(writes=writes)
     await _apply_agentbus_index(env, auth["did"], index)
