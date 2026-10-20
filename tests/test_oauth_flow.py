@@ -382,6 +382,27 @@ async def test_include_scopes_expand_permission_sets(client, env, issue):
     assert calls["record"] == 1  # resolved once at PAR, then served from the D1 cache
 
 
+async def test_service_auth_for_a_service_ref_from_a_permission_set(client, env, issue):
+    """Colibri asks getServiceAuth for aud=did:web:...#colibri_appview, granted through include:."""
+    from roost.jwt import parse_jwt
+    serve_permission_set(env, "social.colibri.permissionAccount", [
+        {"type": "permission", "resource": "rpc", "inheritAud": True, "lxm": ["social.colibri.sync.subscribeEvents"]},
+    ])
+    _, par, token = await issue(f"atproto include:social.colibri.permissionAccount?aud={COLIBRI_APPVIEW}")
+    path = "/xrpc/com.atproto.server.getServiceAuth"
+
+    def ask(aud: str, lxm: str = "social.colibri.sync.subscribeEvents"):
+        return client.get(path, params={"aud": aud, "lxm": lxm},
+                          headers=oauth_headers(par.key, "GET", path, token["access_token"]))
+
+    response = await ask(COLIBRI_APPVIEW)
+    assert response.status == 200, response.text
+    assert parse_jwt(response.json()["token"])[1]["aud"] == COLIBRI_APPVIEW
+    assert (await ask("did:web:api.colibri.social#other")).status == 403
+    assert (await ask(COLIBRI_APPVIEW, "social.colibri.actor.deleteAccount")).status == 403
+    assert (await ask("did:web:api.colibri.social#")).status == 400
+
+
 async def test_par_rejects_unresolvable_permission_sets(client, env, registered):
     env.http.routes["https://cloudflare-dns.com/dns-query"] = lambda *_: HttpResponse(200, b'{"Status":3}')
     await par_rejected(client, registered(), "invalid_scope",

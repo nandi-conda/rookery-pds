@@ -24,6 +24,8 @@ async def test_options_preflight(client):
     assert "POST" in response.headers["access-control-allow-methods"]
     assert "Authorization" in response.headers["access-control-allow-headers"]
     assert "DPoP" in response.headers["access-control-allow-headers"]
+    for name in ("Atproto-Proxy", "Atproto-Accept-Labelers"):
+        assert name in response.headers["access-control-allow-headers"]
     assert response.headers["access-control-max-age"] == "86400"
 
 

@@ -60,7 +60,7 @@ from .oauth.metadata import (
 from .oauth.nonce import derive_dpop_nonce
 from .oauth.resource_server import InvalidOauthTokenError, resolve_oauth_access_token
 from .oauth.permission_sets import PermissionSetError, effective_scope
-from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_scope_string
+from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_aud, is_valid_scope_string
 from .repo import RepoError
 from .syntax import InvalidHandleError, ensure_valid_handle, is_valid_did, is_valid_nsid
 from .texts import tos_text, welcome_text
@@ -81,9 +81,12 @@ log = logging.getLogger("roost")
 
 MAX_BLOB_BYTES = 60 * 1024 * 1024
 OAUTH_DISPLAY_FIELDS = ("client_name", "client_uri", "logo_uri", "policy_uri", "tos_uri")
-CORS_EXPOSE = "Content-Type,DPoP-Nonce,WWW-Authenticate,Idempotency-Replayed"
+CORS_EXPOSE = "Content-Type,DPoP-Nonce,WWW-Authenticate,Idempotency-Replayed,Atproto-Repo-Rev,Atproto-Content-Labelers"
 CORS_ALLOW_METHODS = "GET,HEAD,POST,PUT,DELETE,OPTIONS"
-CORS_ALLOW_HEADERS = "Content-Type,Authorization,DPoP,Idempotency-Key"
+CORS_ALLOW_HEADERS = (
+    "Content-Type,Authorization,DPoP,Idempotency-Key,Accept-Language,"
+    "Atproto-Proxy,Atproto-Accept-Labelers,Atproto-Space-Audience"
+)
 
 router = Router()
 _requested_crawl = False
@@ -1327,8 +1330,8 @@ async def get_service_auth(request, env):
     aud, lxm = request.query("aud"), request.query("lxm")
     if not aud or not lxm:
         return error("InvalidRequest", "Missing required parameters: aud, lxm", 400)
-    if not is_valid_did(aud):
-        return error("InvalidRequest", "Invalid aud DID", 400)
+    if not is_valid_aud(aud):
+        return error("InvalidRequest", "aud must be a DID, optionally with a #service fragment", 400)
     if not is_valid_nsid(lxm):
         return error("InvalidRequest", "Invalid lxm NSID", 400)
     now = now_s()
