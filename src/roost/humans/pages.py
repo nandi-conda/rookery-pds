@@ -36,6 +36,10 @@ a { color:inherit; text-decoration-color:var(--gold); text-underline-offset:3px;
 ul.scopes { margin:0; padding-left:20px; color:var(--muted); }
 .back { display:inline-block; margin-bottom:20px; color:var(--muted); font-size:0.9rem; text-decoration:none; }
 .back:hover { color:var(--ink); }
+h2 { font-size:1.1rem; margin:32px 0 10px; }
+ol.steps { margin:0; padding-left:20px; display:grid; gap:6px; }
+ol.steps code { word-break:normal; overflow-wrap:anywhere; }
+.muted { color:var(--muted); font-size:0.9rem; }
 .foot { color:var(--muted); font-size:0.9rem; margin:16px 0 0; }
 .error { background:color-mix(in srgb, var(--bad) 10%, transparent); border:1px solid var(--bad); border-radius:10px; padding:10px 12px; }
 .actions { display:flex; flex-wrap:wrap; gap:10px; }
@@ -55,6 +59,24 @@ def _page(title: str, body: str) -> str:
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{_e(title)}</title><style>{STYLE}</style></head><body><main>{body}</main></body></html>"
     )
+
+
+def sign_in_help(env, handle: str = "") -> str:
+    """How to sign in: this host has no app of its own, so people use Bluesky (or another atproto app)."""
+    host = _e(env.ROOKERY_HOSTNAME)
+    who = f"<code>{_e(handle)}</code>" if handle else "your full handle (like <code>you" + _e(env.ROOKERY_HANDLE_DOMAIN) + "</code>)"
+    return f"""
+<h2>How to sign in</h2>
+<div class="card">
+  <div>This host stores your account; you use it through an app like Bluesky.</div>
+  <ol class="steps">
+    <li>Open <a href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> (or the Bluesky phone app) and tap <b>Sign in</b>.</li>
+    <li>Under <b>Hosting provider</b>, tap <b>Bluesky Social</b>, choose <b>Custom</b>, and enter <code>https://{host}</code>.</li>
+    <li>Sign in with {who} and your password.</li>
+  </ol>
+  <div class="muted">Other atproto apps find this host from your handle, so there you just type the handle.</div>
+  <div class="actions"><a class="button" href="https://bsky.app" target="_blank" rel="noopener">Open Bluesky</a></div>
+</div>"""
 
 
 def render_join_page(env, values: dict | None = None, problem: str | None = None) -> str:
@@ -91,8 +113,8 @@ Use it with Bluesky or any other atproto app.</p>
     <span>I agree to the <a href="/tos" target="_blank">rules of this host</a>.</span></label>
   <button type="submit">Create account</button>
 </form>
-<p class="foot">Already have an account here? Sign in from Bluesky or any atproto app with your handle.
-Building an agent? It enrolls with <a href="/.well-known/welcome.md">WelcomeMat</a> instead.</p>"""
+{sign_in_help(env)}
+<p class="foot">Building an agent? It enrolls with <a href="/.well-known/welcome.md">WelcomeMat</a> instead.</p>"""
     return _page(f"Join {env.ROOKERY_HOSTNAME}", body)
 
 
@@ -103,14 +125,11 @@ def render_joined_page(env, did: str, handle: str) -> str:
 <p class="lede">Your account is ready.</p>
 <div class="card">
   <div>Your DID<br><code>{_e(did)}</code></div>
-  <div>To sign in from the Bluesky app, choose <b>Sign in</b>, change the hosting provider to
-  <code>https://{_e(host)}</code>, and use your handle and password.</div>
-  <div>Other atproto apps find this host from your handle, so just sign in with <code>{_e(handle)}</code>.</div>
   <div class="actions">
-    <a class="button" href="https://bsky.app" target="_blank" rel="noopener">Open Bluesky</a>
     <a class="button secondary" href="https://pdsls.dev/at://{_e(did)}" target="_blank" rel="noopener">View your repo</a>
   </div>
 </div>
+{sign_in_help(env, handle)}
 <p class="foot"><a href="/">Back to {_e(host)}</a></p>"""
     return _page("Welcome", body)
 
