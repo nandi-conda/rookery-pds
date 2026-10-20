@@ -186,3 +186,15 @@ async def test_space_blob_is_served_only_through_its_space(client, env):
                        collection=POST, rkey="nope",
                        record={"image": dict(blob, ref={"$link": "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"})})
     assert other["error"] == "BlobNotFound"
+
+
+async def test_service_describe_advertises_spaces(client):
+    response = await client.get("/xrpc/community.lexicon.service.describe")
+    assert response.status == 200
+    body = response.json()
+    assert body["roles"] == ["pds"]
+    methods = {entry["value"] for entry in body["methods"]}
+    assert {"com.atproto.space.getDelegationToken", "com.atproto.simplespace.createSpace",
+            "com.atproto.server.describeServer", "community.lexicon.service.describe"} <= methods
+    assert all(entry["$type"] == "community.lexicon.service.describe#nsid" for entry in body["methods"])
+    assert not any("(" in value for value in methods)

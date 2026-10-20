@@ -1223,6 +1223,23 @@ async def describe_server(request, env):
     })
 
 
+DESCRIBE_NSID = "community.lexicon.service.describe"
+
+
+@router.get("/xrpc/" + DESCRIBE_NSID)
+async def describe_service(request, env):
+    """The XRPC methods this server implements, read from the route table (Spaces clients such as Colibri check it)."""
+    methods = sorted({
+        regex.pattern[len("^/xrpc/"):-1]
+        for _, regex, _ in router.routes
+        if regex.pattern.startswith("^/xrpc/") and is_valid_nsid(regex.pattern[len("^/xrpc/"):-1])
+    })
+    return json_response({
+        "roles": ["pds"],
+        "methods": [{"$type": f"{DESCRIBE_NSID}#nsid", "value": nsid} for nsid in methods],
+    })
+
+
 async def _list_registry(request, env, key: str, lister, filters: dict):
     limit = agentbus.clamp_list_limit(request.query("limit"))
     if limit is None:
