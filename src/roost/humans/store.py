@@ -20,6 +20,7 @@ from ..encoding import b64url_encode, sha256_b64url
 
 ACCESS_TTL_S = 2 * 60 * 60
 REFRESH_TTL_S = 60 * 24 * 60 * 60
+WEB_SESSION_TTL_S = 30 * 24 * 60 * 60
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 256
@@ -47,6 +48,12 @@ SCHEMA = [
   at INTEGER NOT NULL
 )""",
     "CREATE INDEX IF NOT EXISTS idx_login_failures ON login_failures(identifier, at)",
+    """CREATE TABLE IF NOT EXISTS web_sessions (
+  token_hash TEXT PRIMARY KEY,
+  did TEXT NOT NULL,
+  exp INTEGER NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS idx_web_sessions_did ON web_sessions(did)",
     """CREATE TABLE IF NOT EXISTS actor_preferences (
   did TEXT PRIMARY KEY,
   preferences TEXT NOT NULL
@@ -109,6 +116,10 @@ async def set_password(db, did: str, password: str, email: str | None) -> None:
            ON CONFLICT (did) DO UPDATE SET password_hash = excluded.password_hash""",
         did, hash_password(password), email,
     )
+
+
+async def change_password(db, did: str, password: str) -> None:
+    await db.run("UPDATE password_credentials SET password_hash = ? WHERE did = ?", hash_password(password), did)
 
 
 async def email_taken(db, email: str) -> bool:
@@ -194,3 +205,41 @@ async def rotate_session(db, refresh_token: str, aud: str) -> dict:
 async def delete_session(db, refresh_token: str) -> None:
     session = await resolve_token(db, refresh_token, "refresh")
     await db.run("DELETE FROM password_sessions WHERE session_id = ?", session["session_id"])
+
+
+async def revoke_all_sessions(db, did: str, keep_web_token: str | None = None) -> None:
+    """Sign `did` out of every app and browser, except the browser holding `keep_web_token`."""
+    await db.batch([
+        ("DELETE FROM password_sessions WHERE did = ?", [did]),
+        ("DELETE FROM web_sessions WHERE did = ? AND token_hash != ?",
+         [did, sha256_b64url(keep_web_token) if keep_web_token else ""]),
+    ])
+
+
+# Browser sessions for the /account pages: an opaque cookie token, stored hashed.
+
+async def create_web_session(db, did: str) -> str:
+    now = int(time.time())
+    token = b64url_encode(secrets.token_bytes(32))
+    await db.batch([
+        ("DELETE FROM web_sessions WHERE exp < ?", [now]),
+        ("INSERT INTO web_sessions (token_hash, did, exp) VALUES (?, ?, ?)",
+         [sha256_b64url(token), did, now + WEB_SESSION_TTL_S]),
+    ])
+    return token
+
+
+async def resolve_web_session(db, token: str) -> dict | None:
+    """{did, handle, do_id, email} for a live browser session, else None."""
+    await init_humans(db)
+    return await db.first(
+        """SELECT a.did, a.handle, a.do_id, p.email FROM web_sessions w
+           JOIN accounts a ON a.did = w.did AND a.active = 1
+           JOIN password_credentials p ON p.did = w.did
+           WHERE w.token_hash = ? AND w.exp > ?""",
+        sha256_b64url(token), int(time.time()),
+    )
+
+
+async def delete_web_session(db, token: str) -> None:
+    await db.run("DELETE FROM web_sessions WHERE token_hash = ?", sha256_b64url(token))

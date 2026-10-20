@@ -143,3 +143,10 @@ async def insert_dpop_jti(db, jti_hash: str, exp: int, now: int) -> bool:
     return await db.run(
         "INSERT INTO oauth_dpop_jti (jti_hash, exp) VALUES (?, ?) ON CONFLICT(jti_hash) DO NOTHING", jti_hash, exp
     ) == 1
+
+
+async def delete_sessions_by_did(db, did: str) -> None:
+    await db.batch([
+        ("DELETE FROM oauth_tokens WHERE did = ?", [did]),
+        ("DELETE FROM oauth_sessions WHERE did = ?", [did]),
+    ])

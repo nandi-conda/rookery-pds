@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""The HTML pages humans use: /join (sign up) and the OAuth sign-in and consent page."""
+"""The HTML pages humans use: /join (sign up), /signin and /account, and the OAuth sign-in and consent page."""
 
 import html
 
@@ -45,6 +45,11 @@ ol.steps code { word-break:normal; overflow-wrap:anywhere; }
 .actions { display:flex; flex-wrap:wrap; gap:10px; }
 a.button { flex:1; text-align:center; font-weight:600; padding:10px 16px; border-radius:10px; text-decoration:none;
   border:1px solid var(--ink); background:var(--ink); color:var(--bg); }
+.notice { background:color-mix(in srgb, var(--gold) 12%, transparent); border:1px solid var(--gold); border-radius:10px; padding:10px 12px; margin:0 0 16px; }
+dl { margin:0; display:grid; gap:10px; }
+dt { color:var(--muted); font-size:0.85rem; }
+dd { margin:0; }
+form.inline { background:none; border:0; padding:0; }
 a.button.secondary { background:transparent; color:var(--ink); border-color:var(--line); }
 """
 
@@ -76,6 +81,7 @@ def sign_in_help(env, handle: str = "") -> str:
   </ol>
   <div class="muted">Other atproto apps find this host from your handle, so there you just type the handle.</div>
   <div class="actions"><a class="button" href="https://bsky.app" target="_blank" rel="noopener">Open Bluesky</a></div>
+  <div class="muted">To change your handle or password, <a href="/signin">sign in to {host}</a>.</div>
 </div>"""
 
 
@@ -114,8 +120,88 @@ Use it with Bluesky or any other atproto app.</p>
   <button type="submit">Create account</button>
 </form>
 {sign_in_help(env)}
-<p class="foot">Building an agent? It enrolls with <a href="/.well-known/welcome.md">WelcomeMat</a> instead.</p>"""
+<p class="foot">Already have an account? <a href="/signin">Sign in</a>.
+Building an agent? It enrolls with <a href="/.well-known/welcome.md">WelcomeMat</a> instead.</p>"""
     return _page(f"Join {env.ROOKERY_HOSTNAME}", body)
+
+
+def render_signin_page(env, identifier: str = "", problem: str | None = None) -> str:
+    error = f'<p class="error" role="alert">{_e(problem)}</p>' if problem else ""
+    body = f"""
+<a class="back" href="/">&larr; {_e(env.ROOKERY_HOSTNAME)}</a>
+<h1>Sign in</h1>
+<p class="lede">Manage your {_e(env.ROOKERY_HOSTNAME)} account: your handle, password and signed-in apps.</p>
+<form method="post" action="/signin">
+  {error}
+  <label>Handle or email
+    <input type="text" name="identifier" required autocomplete="username" autocapitalize="none" spellcheck="false"
+      value="{_e(identifier)}"></label>
+  <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+  <button type="submit">Sign in</button>
+</form>
+<p class="foot">No account yet? <a href="/join">Sign up</a>. To post and follow people, sign in to
+<a href="https://bsky.app" target="_blank" rel="noopener">Bluesky</a> with the same handle and password.</p>"""
+    return _page("Sign in", body)
+
+
+def render_account_page(env, account: dict, notice: str | None = None, problem: str | None = None) -> str:
+    domain = env.ROOKERY_HANDLE_DOMAIN
+    handle, did = account["handle"], account["did"]
+    name = handle[: -len(domain)] if handle.endswith(domain) else ""
+    banner = f'<p class="notice" role="status">{_e(notice)}</p>' if notice else ""
+    error = f'<p class="error" role="alert">{_e(problem)}</p>' if problem else ""
+    email = f"<div><dt>Email</dt><dd>{_e(account['email'])}</dd></div>" if account.get("email") else ""
+    body = f"""
+<a class="back" href="/">&larr; {_e(env.ROOKERY_HOSTNAME)}</a>
+<h1>@{_e(handle)}</h1>
+<p class="lede">Your {_e(env.ROOKERY_HOSTNAME)} account.</p>
+{banner}{error}
+<div class="card">
+  <dl>
+    <div><dt>Handle</dt><dd><code>{_e(handle)}</code></dd></div>
+    <div><dt>DID</dt><dd><code>{_e(did)}</code></dd></div>
+    {email}
+  </dl>
+  <div class="actions">
+    <a class="button" href="https://bsky.app/profile/{_e(did)}" target="_blank" rel="noopener">Open in Bluesky</a>
+    <a class="button secondary" href="https://pdsls.dev/at://{_e(did)}" target="_blank" rel="noopener">View your repo</a>
+  </div>
+</div>
+
+<h2>Change handle</h2>
+<form method="post" action="/account">
+  <input type="hidden" name="action" value="handle">
+  <label>New handle
+    <div class="suffix"><input type="text" name="handle" required autocapitalize="none" spellcheck="false"
+      pattern="[A-Za-z0-9-]+" value="{_e(name)}"><span>{_e(domain)}</span></div>
+  </label>
+  <button type="submit">Change handle</button>
+</form>
+
+<h2>Change password</h2>
+<form method="post" action="/account">
+  <input type="hidden" name="action" value="password">
+  <input type="text" name="username" value="{_e(handle)}" autocomplete="username" hidden>
+  <label>Current password <input type="password" name="current" required autocomplete="current-password"></label>
+  <label>New password <small>At least 8 characters.</small>
+    <input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+  <button type="submit">Change password</button>
+</form>
+
+<h2>Signed-in apps</h2>
+<div class="card">
+  <div class="muted">Lost a device, or signed in somewhere you shouldn't have? This signs out Bluesky and every other
+  app and browser, including apps you approved through OAuth.</div>
+  <form method="post" action="/account" class="inline">
+    <input type="hidden" name="action" value="everywhere">
+    <button type="submit" class="secondary">Sign out everywhere else</button>
+  </form>
+</div>
+
+<form method="post" action="/signout" class="inline" style="margin-top:24px">
+  <button type="submit" class="secondary">Sign out</button>
+</form>"""
+    return _page(f"@{handle}", body)
 
 
 def render_joined_page(env, did: str, handle: str) -> str:

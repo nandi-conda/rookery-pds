@@ -122,6 +122,8 @@ async def create_session(request, env):
 async def check_login(env, identifier: str, password: str) -> dict:
     await store.init_humans(env.db)
     identifier = identifier.strip().lower().removeprefix("@")
+    if identifier and not any(mark in identifier for mark in ".@:"):
+        identifier += env.ROOKERY_HANDLE_DOMAIN  # a bare name means a handle on this host
     key = identifier
     if await store.too_many_failures(env.db, key):
         raise XrpcError("RateLimitExceeded", "Too many failed sign-in attempts. Try again in 15 minutes.", 429)

@@ -1477,4 +1477,5 @@ async def subscribe_repos(request, env):
 # Route modules that register on `router`.
 from .spaces import routes as _space_routes  # noqa: E402,F401
 from .humans import routes as _human_routes  # noqa: E402,F401
+from .humans import account as _account_routes  # noqa: E402,F401
 from .humans import proxy as _proxy_routes  # noqa: E402,F401  (last: catches unserved /xrpc methods)
