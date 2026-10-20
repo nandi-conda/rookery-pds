@@ -500,15 +500,18 @@ async def oauth_par(request, env):
 
     redirect_uri = form.get("redirect_uri")
     scope = form.get("scope")
-    if (
-        form.get("response_type") != "code"
-        or form.get("code_challenge_method") != "S256" or not form.get("code_challenge")
-        or not redirect_uri or not any(match_redirect_uri(uri, redirect_uri) for uri in metadata["redirect_uris"])
-        or ("response_mode" in form and form["response_mode"] != "query")
-    ):
-        return reply({"error": "invalid_request"}, 400)
+    problem = (
+        "response_type must be code" if form.get("response_type") != "code"
+        else "PKCE with S256 is required" if form.get("code_challenge_method") != "S256" or not form.get("code_challenge")
+        else "redirect_uri is not registered in the client metadata"
+        if not redirect_uri or not any(match_redirect_uri(uri, redirect_uri) for uri in metadata["redirect_uris"])
+        else "response_mode must be query or fragment" if form.get("response_mode", "query") not in RESPONSE_MODES
+        else None
+    )
+    if problem:
+        return reply({"error": "invalid_request", "error_description": problem}, 400)
     if not scope or not is_valid_scope_string(scope):
-        return reply({"error": "invalid_scope"}, 400)
+        return reply({"error": "invalid_scope", "error_description": "scope is missing atproto or has a malformed token"}, 400)
     try:
         # Resolve permission sets now, so an unresolvable include: fails the request up front.
         await effective_scope(env, scope, now)
@@ -517,7 +520,7 @@ async def oauth_par(request, env):
 
     request_uri = f"urn:ietf:params:oauth:request_uri:{random_b64url()}"
     params = {"response_type": "code"}
-    for name in ("state", "login_hint"):
+    for name in ("state", "login_hint", "response_mode"):
         if name in form:
             params[name] = form[name]
     params.update(_display_fields(metadata))
@@ -581,6 +584,16 @@ async def oauth_authorize(request, env):
     return await finish_consent(env, par, auth["did"], deny)
 
 
+RESPONSE_MODES = ("query", "fragment")
+
+
+def client_redirect(par: dict, params: dict) -> Response:
+    """The authorization response, in the query or the fragment as the client asked."""
+    if json.loads(par["params"]).get("response_mode") == "fragment":
+        return redirect(f"{par['redirect_uri'].partition('#')[0]}#{urlencode(params)}")
+    return redirect(with_query(par["redirect_uri"], params))
+
+
 async def finish_consent(env, par: dict, did: str, deny: bool) -> Response:
     """Redirect back to the client with a code for `did`, or access_denied."""
     now = now_s()
@@ -589,7 +602,7 @@ async def finish_consent(env, par: dict, did: str, deny: bool) -> Response:
     extra = {"state": state} if isinstance(state, str) else {}
     if deny:
         await store.consume_par_request(env.db, par["request_uri"])
-        return redirect(with_query(par["redirect_uri"], {"error": "access_denied", **extra, "iss": issuer}))
+        return client_redirect(par, {"error": "access_denied", **extra, "iss": issuer})
     if not await store.consume_par_request(env.db, par["request_uri"]):
         return error("invalid_request", "request_uri already used", 400)
     code = random_b64url()
@@ -603,7 +616,7 @@ async def finish_consent(env, par: dict, did: str, deny: bool) -> Response:
         "dpop_jkt": par["dpop_jkt"],
         "exp": now + 60,
     }, now)
-    return redirect(with_query(par["redirect_uri"], {"code": code, **extra, "iss": issuer}))
+    return client_redirect(par, {"code": code, **extra, "iss": issuer})
 
 
 @router.post(TOKEN_PATH)

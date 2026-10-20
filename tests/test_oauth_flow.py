@@ -413,7 +413,7 @@ async def par_rejected(client, client_id: str, error: str, status: int = 400, **
     ({"scope": "atproto include:app.bsky"}, "invalid_scope"),
     ({"scope": "atproto repo:not a nsid"}, "invalid_scope"),
     ({"scope": "atproto rpc:sh.tangled.repo.create?aud=not-a-did"}, "invalid_scope"),
-    ({"response_mode": "fragment"}, "invalid_request"),
+    ({"response_mode": "form_post"}, "invalid_request"),
 ])
 async def test_par_rejects(client, registered, overrides, error):
     await par_rejected(client, registered(), error, **overrides)
@@ -429,6 +429,27 @@ async def test_par_rejects(client, registered, overrides, error):
 ])
 async def test_par_accepts(client, registered, overrides):
     await do_par(client, registered(), **overrides)
+
+
+async def test_fragment_response_mode_and_prompt_create(client, enroll, registered):
+    """@atproto/oauth-client-browser asks for response_mode=fragment by default."""
+    from urllib.parse import parse_qs
+    rook = await enroll()
+    client_id = registered()
+    par = await do_par(client, client_id, response_mode="fragment", prompt="create")
+    response = await client.get(par.authorize_path(), headers=consent_headers(rook.agent))
+    assert response.status == 302, response.text
+    base, _, fragment = response.headers["location"].partition("#")
+    assert base == "http://127.0.0.1/callback"
+    params = {key: values[0] for key, values in parse_qs(fragment).items()}
+    assert params["code"] and params["state"] == par.state and params["iss"] == ORIGIN
+    assert token_success(await exchange_code(client, par, params["code"]))["sub"]
+
+
+async def test_par_errors_say_what_is_wrong(client, registered):
+    form, _ = par_form(registered(), response_mode="form_post")
+    response = await post_with_nonce(client, "/oauth/par", form, EcKey())
+    assert response.json() == {"error": "invalid_request", "error_description": "response_mode must be query or fragment"}
 
 
 async def test_par_accepts_loopback_port_variance(client, registered):
