@@ -19,6 +19,7 @@ from .encoding import b64url_encode
 from .keys import Secp256k1Keypair
 from .lexjson import json_to_lex, lex_to_json
 from .repo import Repo, RepoError, Write
+from .spaces.account import SpaceMethods
 from .storage import RepoStorage
 
 _rkey_counter = 0
@@ -57,13 +58,14 @@ class AccountNotProvisioned(RepoError):
         super().__init__("Account not provisioned")
 
 
-class Account:
+class Account(SpaceMethods):
     """`sql` is the DO's SQLite; `sequencer` has async sequence_commit/identity/account;
     `blobs` is the R2 bucket adapter."""
 
     def __init__(self, sql, sequencer, blobs):
         self.storage = RepoStorage(sql)
         self.storage.init_schema()
+        self.spaces.init_schema()
         self.sequencer = sequencer
         self.blobs = blobs
 

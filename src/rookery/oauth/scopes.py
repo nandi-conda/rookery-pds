@@ -2,11 +2,12 @@
 # Copyright (c) 2026 sol pbc
 
 """The OAuth scopes rookery grants: atproto, transition:generic, repo:<nsid>,
-blob:*/*, and rpc:<lxm>?aud=<did|*>."""
+blob:*/*, rpc:<lxm>?aud=<did|*>, and space:<type>?... (see spaces.scopes)."""
 
 import re
 from urllib.parse import parse_qsl
 
+from ..spaces.scopes import parse_space_scope
 from ..syntax import is_valid_did, is_valid_nsid
 
 
@@ -40,7 +41,7 @@ def parse_scope_token(token: str) -> dict | None:
         return {"kind": "blob", "mime": mime} if mime == "*/*" else None
     if token.startswith("rpc:"):
         return _parse_rpc(token)
-    return None
+    return parse_space_scope(token)
 
 
 def parse_scope(scope: str) -> list[dict] | None:

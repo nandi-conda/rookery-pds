@@ -16,6 +16,8 @@ from fakes import Client, Env  # noqa: E402
 from rookery import app as rookery_app  # noqa: E402
 from rookery.oauth import client_metadata  # noqa: E402
 from rookery import access, directory  # noqa: E402
+from rookery.humans import store as human_store  # noqa: E402
+from rookery.spaces import auth as space_auth  # noqa: E402
 
 ORIGIN = "https://rookery.test"
 OPERATOR_TOKEN = "test-operator-token"
@@ -39,6 +41,8 @@ def _reset_module_state():
     client_metadata.reset_cache()
     access.reset_jwks_cache()
     directory._idempotency_ensured = False
+    human_store._initialized = False
+    space_auth._revocations_ensured = False
     rookery_app._requested_crawl = False
     yield
 
