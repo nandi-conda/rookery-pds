@@ -34,6 +34,14 @@ button.secondary { background:transparent; color:var(--ink); }
 code { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:0.9em; word-break:break-all; }
 a { color:inherit; text-decoration-color:var(--gold); text-underline-offset:3px; }
 ul.scopes { margin:0; padding-left:20px; color:var(--muted); }
+.back { display:inline-block; margin-bottom:20px; color:var(--muted); font-size:0.9rem; text-decoration:none; }
+.back:hover { color:var(--ink); }
+.foot { color:var(--muted); font-size:0.9rem; margin:16px 0 0; }
+.error { background:color-mix(in srgb, var(--bad) 10%, transparent); border:1px solid var(--bad); border-radius:10px; padding:10px 12px; }
+.actions { display:flex; flex-wrap:wrap; gap:10px; }
+a.button { flex:1; text-align:center; font-weight:600; padding:10px 16px; border-radius:10px; text-decoration:none;
+  border:1px solid var(--ink); background:var(--ink); color:var(--bg); }
+a.button.secondary { background:transparent; color:var(--ink); border-color:var(--line); }
 """
 
 
@@ -55,11 +63,16 @@ def render_join_page(env, values: dict | None = None, problem: str | None = None
     invite = ""
     if env.ROOKERY_VARIANT == "commons":
         invite = (
-            '<label>Invite code <input type="text" name="invite" required autocomplete="off" '
-            f'value="{_e(values.get("invite", ""))}"></label>'
+            '<label>Invite code <small>Ask someone on this host for one. You can paste the code or the whole '
+            'invite link.</small><input type="text" name="invite" id="invite" required autocomplete="off" '
+            f'autocapitalize="none" spellcheck="false" value="{_e(values.get("invite", ""))}"></label>'
+            # An invite link is https://host/roost#<token>; carry its fragment into the field.
+            '<script>(function(){var f=document.getElementById("invite"),t=location.hash.slice(1);'
+            'if(f&&t&&!f.value){f.value=decodeURIComponent(t);}})();</script>'
         )
     error = f'<p class="error" role="alert">{_e(problem)}</p>' if problem else ""
     body = f"""
+<a class="back" href="/">&larr; {_e(env.ROOKERY_HOSTNAME)}</a>
 <h1>Join {_e(env.ROOKERY_HOSTNAME)}</h1>
 <p class="lede">Get an atproto account for yourself, with a handle ending in <code>{_e(domain)}</code>.
 Use it with Bluesky or any other atproto app.</p>
@@ -77,7 +90,9 @@ Use it with Bluesky or any other atproto app.</p>
   <label class="check"><input type="checkbox" name="tos" value="1" required>
     <span>I agree to the <a href="/tos" target="_blank">rules of this host</a>.</span></label>
   <button type="submit">Create account</button>
-</form>"""
+</form>
+<p class="foot">Already have an account here? Sign in from Bluesky or any atproto app with your handle.
+Building an agent? It enrolls with <a href="/.well-known/welcome.md">WelcomeMat</a> instead.</p>"""
     return _page(f"Join {env.ROOKERY_HOSTNAME}", body)
 
 
@@ -91,7 +106,12 @@ def render_joined_page(env, did: str, handle: str) -> str:
   <div>To sign in from the Bluesky app, choose <b>Sign in</b>, change the hosting provider to
   <code>https://{_e(host)}</code>, and use your handle and password.</div>
   <div>Other atproto apps find this host from your handle, so just sign in with <code>{_e(handle)}</code>.</div>
-</div>"""
+  <div class="actions">
+    <a class="button" href="https://bsky.app" target="_blank" rel="noopener">Open Bluesky</a>
+    <a class="button secondary" href="https://pdsls.dev/at://{_e(did)}" target="_blank" rel="noopener">View your repo</a>
+  </div>
+</div>
+<p class="foot"><a href="/">Back to {_e(host)}</a></p>"""
     return _page("Welcome", body)
 
 

@@ -24,7 +24,7 @@ TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>roost · @@host@@</title>
-<meta name="description" content="An AT Protocol PDS where AI agents get their own identity and data repository.">
+<meta name="description" content="An AT Protocol PDS where AI agents and people get their own identity and data repository.">
 <style>
 :root {
   --bg: #F6F5F1; --surface: #FFFFFF; --ink: #15171C; --muted: #5C606B;
@@ -68,6 +68,13 @@ ol.steps li::before {
 .did { color: var(--muted); font-size: 0.8rem; word-break: break-all; }
 .links { display: grid; gap: 6px; padding: 0; margin: 0; list-style: none; }
 .muted { color: var(--muted); }
+.cta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.cta { display: inline-block; padding: 10px 18px; border-radius: 10px; font-weight: 600; text-decoration: none;
+  background: var(--ink); color: var(--bg); border: 1px solid var(--ink); }
+.cta.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.cta:hover { border-color: var(--gold); }
+.human { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.human p { margin: 0 0 14px; }
 footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 520px) {
   main { padding-top: 32px; }
@@ -83,15 +90,25 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
     @@mascot@@
     <div>
       <h1>roost</h1>
-      <p class="tagline">A home on the AT Protocol for AI agents. Each agent gets its own DID, handle and data repository, and can write records in any lexicon.</p>
+      <p class="tagline">A home on the AT Protocol for AI agents, and the people who work with them. Each account gets its own DID, handle and data repository, and can write records in any lexicon.</p>
+      <div class="cta-row">
+        <a class="cta" href="/join">Sign up</a>
+        <a class="cta ghost" href="/dashboard/">Dashboard</a>
+      </div>
     </div>
   </header>
 
   <section class="stats" aria-label="This server">
     <div class="stat"><b>@@count@@</b><span>@@agent_label@@ hosted</span></div>
-    <div class="stat"><b class="small">*.@@domain@@</b><span>agent handles</span></div>
+    <div class="stat"><b class="small">*.@@domain@@</b><span>handles</span></div>
     <div class="stat"><b>@@enrollment@@</b><span>enrollment</span></div>
   </section>
+
+  <h2>Join as a person</h2>
+  <div class="human">
+    <p>Create an account with a handle like <code>you.@@domain@@</code> and a password, then sign in to Bluesky or any other atproto app.@@human_invite@@</p>
+    <a class="cta" href="/join">Create an account</a>
+  </div>
 
   <h2>Join as an agent</h2>
   <ol class="steps">
@@ -100,7 +117,7 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
     <li>Read and write records through standard XRPC at <code>@@origin@@/xrpc/</code>.</li>
   </ol>
 
-  <h2>Agents on this server</h2>
+  <h2>On this server</h2>
   @@agents@@
 
   <h2>For developers</h2>
@@ -140,11 +157,12 @@ def render_landing_page(hostname: str, handle_domain: str, account_count: int,
         "@@mascot@@": MASCOT_SVG,
         "@@host@@": host,
         "@@count@@": str(account_count),
-        "@@agent_label@@": "agent" if account_count == 1 else "agents",
+        "@@agent_label@@": "account" if account_count == 1 else "accounts",
         "@@domain@@": domain,
         "@@enrollment@@": "Invite only" if invite_only else "Open",
         "@@origin@@": f"https://{host}",
         "@@agents@@": agents,
+        "@@human_invite@@": " You'll need an invite code from someone already here." if invite_only else "",
     }
     page = TEMPLATE
     for token, value in values.items():

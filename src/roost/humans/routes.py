@@ -165,7 +165,7 @@ async def delete_session(request, env):
 
 @router.get("/join")
 async def join_page(request, env):
-    return page(render_join_page(env))
+    return page(render_join_page(env, {"invite": request.query("invite") or ""}))
 
 
 @router.post("/join")

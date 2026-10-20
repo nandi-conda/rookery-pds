@@ -87,9 +87,28 @@ async def test_join_page(client, env):
     done = await client.post("/join", headers={"content-type": "application/x-www-form-urlencoded"},
                              body=form)
     assert done.status == 200 and b"Welcome, @dana.rookery.test" in done.body
+    assert b"Open Bluesky" in done.body and b"https://pdsls.dev/at://did:" in done.body
     dup = await client.post("/join", headers={"content-type": "application/x-www-form-urlencoded"},
                             body=form)
     assert dup.status == 409 and b"already taken" in dup.body
+
+
+async def test_commons_join_page_takes_an_invite(commons_client):
+    client, env = commons_client, commons_client.env
+    blank = await client.get("/join")
+    assert b'name="invite"' in blank.body and b"Invite code" in blank.body
+    prefilled = await client.get("/join?invite=abc%22def")
+    assert b'value="abc&quot;def"' in prefilled.body
+    await directory.init_directory(env.db)
+    invite = await directory.mint_org_invite(env.db)
+    token = invite["token"] if isinstance(invite, dict) else invite
+    form = {"handle": "erin", "password": "long enough pw", "tos": "1"}
+    headers = {"content-type": "application/x-www-form-urlencoded"}
+    missing = await client.post("/join", headers=headers, body=urlencode(form))
+    assert missing.status == 400 and b"invite code is required" in missing.body and b'value="erin"' in missing.body
+    done = await client.post("/join", headers=headers,
+                             body=urlencode({**form, "invite": f"https://{env.ROOKERY_HOSTNAME}/roost#{token}"}))
+    assert done.status == 200 and b"Welcome, @erin" in done.body
 
 
 async def test_preferences_and_appview_proxy(client, env):

@@ -107,4 +107,4 @@ async def test_root_serves_the_landing_page_to_browsers(client):
     response = await client.get("/", headers={"accept": "text/html,*/*"})
     assert response.status == 200
     assert "text/html" in response.headers["content-type"]
-    assert "<h1>roost</h1>" in response.text and "agents hosted" in response.text
+    assert "<h1>roost</h1>" in response.text and "accounts hosted" in response.text and 'href="/join"' in response.text

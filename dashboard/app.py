@@ -453,6 +453,13 @@ def view_header() -> None:
     on_click(REFRESH, 0)
     text("Refresh")
     end()
+    pds_base(tmp)
+    s_add(tmp, "/join")
+    el("a")
+    cls("signup")
+    attr_ref("href", tmp)
+    text("Sign up")
+    end()
     end()
     end()
 
