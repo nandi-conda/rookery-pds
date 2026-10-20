@@ -14,9 +14,8 @@ import json
 import secrets
 import time
 
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-
 from .. import directory
+from ..crypto import lib
 from ..encoding import b64url_encode, sha256_b64url
 
 ACCESS_TTL_S = 2 * 60 * 60
@@ -72,7 +71,7 @@ async def init_humans(db) -> None:
 # Passwords
 
 def _scrypt(password: str, salt: bytes) -> bytes:
-    return Scrypt(salt=salt, length=32, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P).derive(password.encode("utf-8"))
+    return lib().Scrypt(salt=salt, length=32, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P).derive(password.encode("utf-8"))
 
 
 def hash_password(password: str) -> str:
@@ -86,7 +85,7 @@ def verify_password(password: str, stored: str) -> bool:
         scheme, n, r, p, salt, digest = stored.split("$")
         if scheme != "scrypt":
             return False
-        derived = Scrypt(salt=base64.b64decode(salt), length=32, n=int(n), r=int(r), p=int(p)).derive(
+        derived = lib().Scrypt(salt=base64.b64decode(salt), length=32, n=int(n), r=int(r), p=int(p)).derive(
             password.encode("utf-8")
         )
     except Exception:

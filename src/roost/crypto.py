@@ -18,8 +18,9 @@ def lib() -> SimpleNamespace:
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
     from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature, encode_dss_signature
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
     return SimpleNamespace(
         InvalidSignature=InvalidSignature, hashes=hashes, serialization=serialization, ec=ec, padding=padding,
-        rsa=rsa, decode_dss_signature=decode_dss_signature, encode_dss_signature=encode_dss_signature,
+        rsa=rsa, decode_dss_signature=decode_dss_signature, encode_dss_signature=encode_dss_signature, Scrypt=Scrypt,
     )

@@ -10,10 +10,7 @@ in `keyid`; a space-credential request signs `authorization` and
 
 import base64
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature, encode_dss_signature
-
+from ..crypto import lib
 from ..encoding import b58_decode, b58_encode
 from ..keys import P256_DID_PREFIX
 from .sfv import SfvError, parse_dictionary, serialize_inner_list
@@ -26,7 +23,7 @@ class SpaceSignatureError(Exception):
     code = "BadSpaceSignature"
 
 
-def _p256_public(did_key: str) -> ec.EllipticCurvePublicKey | None:
+def _p256_public(did_key: str):
     if not isinstance(did_key, str) or not did_key.startswith("did:key:z"):
         return None
     try:
@@ -36,7 +33,7 @@ def _p256_public(did_key: str) -> ec.EllipticCurvePublicKey | None:
     if not raw.startswith(P256_DID_PREFIX):
         return None
     try:
-        return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw[2:])
+        return lib().ec.EllipticCurvePublicKey.from_encoded_point(lib().ec.SECP256R1(), raw[2:])
     except ValueError:
         return None
 
@@ -91,9 +88,9 @@ def verify_space_signature(headers, key_id: str | None = None) -> str:
     raw = signature[1]
     if len(raw) != 64:
         raise SpaceSignatureError("invalid HTTP message signature")
-    der = encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
+    der = lib().encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
     try:
-        public.verify(der, base, ec.ECDSA(hashes.SHA256()))
+        public.verify(der, base, lib().ec.ECDSA(lib().hashes.SHA256()))
     except Exception as exc:
         raise SpaceSignatureError("invalid HTTP message signature") from exc
     return signing_key
@@ -102,17 +99,17 @@ def verify_space_signature(headers, key_id: str | None = None) -> str:
 class P256Keypair:
     """A P-256 key for signing space requests (used by clients and tests)."""
 
-    def __init__(self, key: ec.EllipticCurvePrivateKey | None = None):
-        self._key = key or ec.generate_private_key(ec.SECP256R1())
+    def __init__(self, key=None):
+        self._key = key or lib().ec.generate_private_key(lib().ec.SECP256R1())
 
     def did(self) -> str:
         point = self._key.public_key().public_bytes(
-            serialization.Encoding.X962, serialization.PublicFormat.CompressedPoint
+            lib().serialization.Encoding.X962, lib().serialization.PublicFormat.CompressedPoint
         )
         return "did:key:z" + b58_encode(P256_DID_PREFIX + point)
 
     def sign(self, message: bytes) -> bytes:
-        r, s = decode_dss_signature(self._key.sign(message, ec.ECDSA(hashes.SHA256())))
+        r, s = lib().decode_dss_signature(self._key.sign(message, lib().ec.ECDSA(lib().hashes.SHA256())))
         return r.to_bytes(32, "big") + s.to_bytes(32, "big")
 
 

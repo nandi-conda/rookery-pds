@@ -8,10 +8,7 @@ inter-service auth JWTs (notifications between PDSes)."""
 import re
 import time
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
-
+from ..crypto import lib
 from ..encoding import b64url_decode, sha256_b64url
 from ..errors import XrpcError
 from ..jwt import JwtFormatError, parse_jwt
@@ -158,11 +155,11 @@ async def verify_service_auth(request, env, lxm: str) -> dict:
     return {"iss": issuer_did, "aud": aud}
 
 
-def _jwk_public(jwk: dict) -> ec.EllipticCurvePublicKey:
+def _jwk_public(jwk: dict):
     if jwk.get("kty") != "EC" or jwk.get("crv") != "P-256":
         raise ValueError("client attestation keys must be EC P-256")
-    numbers = ec.EllipticCurvePublicNumbers(
-        int.from_bytes(b64url_decode(jwk["x"]), "big"), int.from_bytes(b64url_decode(jwk["y"]), "big"), ec.SECP256R1()
+    numbers = lib().ec.EllipticCurvePublicNumbers(
+        int.from_bytes(b64url_decode(jwk["x"]), "big"), int.from_bytes(b64url_decode(jwk["y"]), "big"), lib().ec.SECP256R1()
     )
     return numbers.public_key()
 
@@ -189,10 +186,10 @@ async def verify_client_attestation(env, attestation: str, aud: str) -> str:
     candidates = [key for key in keys if not header.get("kid") or key.get("kid") == header.get("kid")]
     if len(signature) != 64:
         raise XrpcError("InvalidClientAttestation", "invalid client attestation signature")
-    der = encode_dss_signature(int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big"))
+    der = lib().encode_dss_signature(int.from_bytes(signature[:32], "big"), int.from_bytes(signature[32:], "big"))
     for jwk in candidates:
         try:
-            _jwk_public(jwk).verify(der, signing_input, ec.ECDSA(hashes.SHA256()))
+            _jwk_public(jwk).verify(der, signing_input, lib().ec.ECDSA(lib().hashes.SHA256()))
         except Exception:
             continue
         await store.init_oauth(env.db)

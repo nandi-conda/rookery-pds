@@ -94,3 +94,17 @@ async def test_reports_cloudflare_status_and_error_text():
         await publish_handle_dns(env, "weather.agent.latha.org", "did:plc:x")
     assert str(raised.value) == (
         "Cloudflare DNS lookup for _atproto.weather.agent.latha.org failed (403): 10000 Authentication error")
+
+
+def test_no_module_imports_cryptography_at_load_time():
+    # Python Workers reject a bundle whose module load touches the RNG ("Top-level
+    # await in module is unsettled"); cryptography must go through roost.crypto.lib().
+    import pathlib
+    import re
+
+    src = pathlib.Path(__file__).resolve().parent.parent / "src"
+    offenders = [
+        str(path.relative_to(src)) for path in src.rglob("*.py")
+        if re.search(r"^(from|import) cryptography", path.read_text(), re.M)
+    ]
+    assert offenders == []
