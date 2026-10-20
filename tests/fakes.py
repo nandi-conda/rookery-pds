@@ -180,7 +180,7 @@ class Http:
 
 
 class Plc:
-    """The PLC directory: accepts operations, serves the audit log."""
+    """The PLC directory: accepts operations, serves the audit log and DID documents."""
 
     def __init__(self):
         self.log: dict[str, list[dict]] = {}
@@ -197,7 +197,28 @@ class Plc:
             return HttpResponse(200, b"")
         if len(path) == 3 and path[1:] == ["log", "audit"] and path[0] in self.log:
             return HttpResponse(200, json.dumps(self.log[path[0]]).encode())
+        if len(path) == 1 and path[0] in self.log:
+            return HttpResponse(200, json.dumps(self.did_doc(path[0])).encode())
         return HttpResponse(404, b'{"message":"DID not registered"}')
+
+    def publish(self, did: str, op: dict) -> None:
+        self.log.setdefault(did, []).append({"did": did, "cid": "", "nullified": False, "operation": op})
+
+    def did_doc(self, did: str) -> dict:
+        op = self.log[did][-1]["operation"]
+        return {
+            "id": did,
+            "alsoKnownAs": op.get("alsoKnownAs", []),
+            "verificationMethod": [
+                {"id": f"{did}#{name}", "type": "Multikey", "controller": did,
+                 "publicKeyMultibase": key.removeprefix("did:key:")}
+                for name, key in op.get("verificationMethods", {}).items()
+            ],
+            "service": [
+                {"id": f"#{name}", "type": service["type"], "serviceEndpoint": service["endpoint"]}
+                for name, service in op.get("services", {}).items()
+            ],
+        }
 
 
 DEFAULT_VARS = {

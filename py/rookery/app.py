@@ -168,10 +168,10 @@ def with_query(url: str, params: dict) -> str:
 
 # Auth
 
-async def resolve_dpop_auth(request, env, method: str) -> dict:
+async def resolve_dpop_auth(request, env, method: str, sessions: bool = True) -> dict:
     """{did, do_id, kind: "wm" | "oauth" | "session", scope?} for the request's credentials."""
     authorization = request.header("authorization") or ""
-    if authorization[:7].lower() == "bearer ":
+    if sessions and authorization[:7].lower() == "bearer ":
         return await _resolve_password_session(env, authorization[7:].strip())
     access_token = extract_bearer_token(authorization)
     if not access_token:
@@ -211,9 +211,10 @@ def auth_failure(exc: Exception, oauth_token_error: bool = True) -> Response:
     return error("AuthRequired" if message.startswith("Missing") else "AuthFailed", message, 401)
 
 
-async def authenticate(request, env, method: str, oauth_token_error: bool = True) -> dict:
+async def authenticate(request, env, method: str, oauth_token_error: bool = True, sessions: bool = True) -> dict:
+    """`sessions=False` refuses password-session Bearer tokens (agent-only paths)."""
     try:
-        return await resolve_dpop_auth(request, env, method)
+        return await resolve_dpop_auth(request, env, method, sessions)
     except (AuthError, InvalidOauthTokenError, directory.RepoNotFoundError) as exc:
         raise AuthFailure(auth_failure(exc, oauth_token_error)) from exc
 
@@ -529,7 +530,7 @@ async def oauth_authorize(request, env):
     # a specific request_uri. The jti cache, single-use request_uri, iat window, ath,
     # and TLS cover the practical capture/replay cases.
     deny = request.query("deny") == "1"
-    auth = await authenticate(request, env, "GET", oauth_token_error=False)
+    auth = await authenticate(request, env, "GET", oauth_token_error=False, sessions=False)
     if auth["kind"] != "wm":
         return error("AuthFailed", "OAuth access tokens cannot grant consent", 401)
     _, payload, _, _ = parse_jwt(request.header("dpop") or "")

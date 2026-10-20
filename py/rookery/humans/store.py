@@ -54,7 +54,7 @@ SCHEMA = [
 )""",
 ]
 
-_initialized: set[int] = set()  # D1 bindings whose schema is in place, per isolate
+_initialized = False
 
 
 class SessionError(Exception):
@@ -62,10 +62,11 @@ class SessionError(Exception):
 
 
 async def init_humans(db) -> None:
+    global _initialized
     await directory.init_directory(db)
-    if id(db) not in _initialized:
+    if not _initialized:
         await db.batch([(statement, []) for statement in SCHEMA])
-        _initialized.add(id(db))
+        _initialized = True
 
 
 # Passwords

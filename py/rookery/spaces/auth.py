@@ -25,12 +25,13 @@ from .refs import InvalidSpaceRef, SpaceRef, space_host_aud
 from .tokens import SpaceTokenError, parse_token, verify_token
 
 AUTH_SCHEME_RE = re.compile(r"^(\S+)\s+(\S+)$")
-_revocations_ensured: set[int] = set()
+_revocations_ensured = False
 
 
 async def ensure_revocations(env) -> None:
     """Credential revocations a space authority sent this repo host (D1, shared by all accounts)."""
-    if id(env.db) in _revocations_ensured:
+    global _revocations_ensured
+    if _revocations_ensured:
         return
     await env.db.run("""CREATE TABLE IF NOT EXISTS revoked_space_credentials (
   space TEXT NOT NULL,
@@ -38,7 +39,7 @@ async def ensure_revocations(env) -> None:
   revoked_at TEXT NOT NULL,
   PRIMARY KEY (space, jti)
 )""")
-    _revocations_ensured.add(id(env.db))
+    _revocations_ensured = True
 
 
 def auth_required(message: str, code: str = "AuthRequired") -> XrpcError:
