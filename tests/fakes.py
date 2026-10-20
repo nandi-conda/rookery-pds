@@ -72,11 +72,11 @@ class Blobs:
     async def put(self, key, data, content_type):
         self.objects[key] = (bytes(data), content_type)
 
-    async def list(self, prefix, cursor):
-        keys = sorted(key for key in self.objects if key.startswith(prefix))
-        start = int(cursor) if cursor else 0
-        page = keys[start:start + 2]
-        return page, (str(start + 2) if start + 2 < len(keys) else None)
+    async def list(self, prefix, cursor, page_size: int = 2):
+        # Opaque cursor: the last key handed out, so deletes between pages are safe.
+        keys = sorted(key for key in self.objects if key.startswith(prefix) and (cursor is None or key > cursor))
+        page = keys[:page_size]
+        return page, (page[-1] if len(keys) > page_size else None)
 
     async def delete(self, keys):
         for key in keys:
