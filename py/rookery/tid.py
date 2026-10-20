@@ -7,14 +7,14 @@ Workers freeze the clock within a request, so a per-isolate counter keeps
 TIDs minted in the same millisecond distinct and increasing.
 """
 
-import random
+import secrets
 import time
 
 from .encoding import s32_decode, s32_encode
 
 _last_ms = 0
 _count = 0
-_clock_id = random.randrange(32)
+_clock_id: int | None = None
 
 
 def _from_time(timestamp_us: int, clock_id: int) -> str:
@@ -22,7 +22,9 @@ def _from_time(timestamp_us: int, clock_id: int) -> str:
 
 
 def next_tid(prev: str | None = None) -> str:
-    global _last_ms, _count
+    global _last_ms, _count, _clock_id
+    if _clock_id is None:  # chosen on first use: Workers allow no randomness at load time
+        _clock_id = secrets.randbelow(32)
     now_ms = max(int(time.time() * 1000), _last_ms)
     if now_ms == _last_ms:
         _count += 1

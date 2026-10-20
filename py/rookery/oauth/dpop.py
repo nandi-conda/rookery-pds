@@ -6,12 +6,8 @@
 import json
 from ..urls import parse_url
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
-
 from ..auth import _origin_and_path
+from ..crypto import lib
 from ..encoding import b64url_decode, sha256_b64url
 from ..jwt import JwtFormatError, is_number, parse_jwt
 from .nonce import derive_dpop_nonce, is_valid_dpop_nonce
@@ -45,10 +41,11 @@ def _is_ec_public_jwk(jwk) -> bool:
 
 
 def _verify_es256(jwk: dict, signature_b64url: str, signing_input: str) -> bool:
+    c = lib()
     try:
         x = int.from_bytes(b64url_decode(jwk["x"]), "big")
         y = int.from_bytes(b64url_decode(jwk["y"]), "big")
-        key = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key()
+        key = c.ec.EllipticCurvePublicNumbers(x, y, c.ec.SECP256R1()).public_key()
     except ValueError as exc:
         raise DpopError("invalid DPoP proof: invalid EC public key") from exc
     try:
@@ -57,11 +54,11 @@ def _verify_es256(jwk: dict, signature_b64url: str, signing_input: str) -> bool:
         return False
     if len(raw) != 64:
         return False
-    der = encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
+    der = c.encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
     try:
-        key.verify(der, signing_input.encode(), ec.ECDSA(hashes.SHA256()))
+        key.verify(der, signing_input.encode(), c.ec.ECDSA(c.hashes.SHA256()))
         return True
-    except InvalidSignature:
+    except c.InvalidSignature:
         return False
 
 
