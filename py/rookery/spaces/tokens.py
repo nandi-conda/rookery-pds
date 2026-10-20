@@ -9,8 +9,8 @@ import json
 import secrets
 import time
 
-from ..encoding import b64url_decode, b64url_encode
-from ..keys import verify_did_key_signature
+from ..encoding import b58_decode, b64url_decode, b64url_encode
+from ..keys import P256_DID_PREFIX, SECP256K1_DID_PREFIX, verify_did_key_signature
 from ..syntax import is_valid_did
 
 TOKEN_TYPES = {
@@ -55,6 +55,22 @@ def build_token(token_type: str, sign, *, iss: str, sub: str, aud: str | None = 
     payload.update(iat=iat, exp=iat + spec["expires_in"], jti=secrets.token_hex(8))
     signing_input = f"{_b64_json(header)}.{_b64_json(payload)}"
     return f"{signing_input}.{b64url_encode(sign(signing_input.encode()))}"
+
+
+def _key_alg(did_key: str) -> str | None:
+    try:
+        raw = b58_decode(did_key.removeprefix("did:key:z"))
+    except Exception:
+        return None
+    if raw.startswith(SECP256K1_DID_PREFIX):
+        return "ES256K"
+    if raw.startswith(P256_DID_PREFIX):
+        return "ES256"
+    return None
+
+
+def _signed_by(did_key: str, alg: str, signing_input: bytes, signature: bytes) -> bool:
+    return _key_alg(did_key) == alg and verify_did_key_signature(did_key, signing_input, signature)
 
 
 def _is_number(value) -> bool:
@@ -118,9 +134,9 @@ async def verify_token(token_type: str, jwt: str, get_signing_key, aud: str | No
     if header["alg"] not in ("ES256K", "ES256"):
         raise SpaceTokenError(f'unsupported token "alg": {header["alg"]}', "BadJwtSignature")
     did_key = await get_signing_key(payload["iss"], header.get("kid"), False)
-    if verify_did_key_signature(did_key, signing_input, signature):
+    if _signed_by(did_key, header["alg"], signing_input, signature):
         return header, payload
     fresh = await get_signing_key(payload["iss"], header.get("kid"), True)
-    if fresh != did_key and verify_did_key_signature(fresh, signing_input, signature):
+    if fresh != did_key and _signed_by(fresh, header["alg"], signing_input, signature):
         return header, payload
     raise SpaceTokenError("invalid token signature", "BadJwtSignature")

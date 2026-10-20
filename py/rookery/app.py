@@ -1190,9 +1190,10 @@ async def describe_server(request, env):
         "availableUserDomains": [env.ROOKERY_HANDLE_DOMAIN.removeprefix(".")],
         "inviteCodeRequired": is_commons(env),
         "phoneVerificationRequired": False,
-        "links": {},
+        "links": {"termsOfService": f"{origin(env)}/tos"},
         "contact": {},
         "accounts": count["count"] if count else 0,
+        "spacesAlpha": True,
     })
 
 

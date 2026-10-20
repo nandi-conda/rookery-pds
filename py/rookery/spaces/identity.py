@@ -25,7 +25,7 @@ async def resolve_did_doc(env, did: str, force_refresh: bool = False) -> dict:
     if cached and not force_refresh and time.time() - cached[1] < CACHE_TTL_S:
         return cached[0]
     if did.startswith("did:plc:"):
-        url = f"{env.ROOKERY_PLC_URL}/{quote(did)}"
+        url = f"{env.ROOKERY_PLC_URL}/{quote(did, safe=':')}"
     elif did.startswith("did:web:"):
         host = did[len("did:web:"):]
         if ":" in host:
