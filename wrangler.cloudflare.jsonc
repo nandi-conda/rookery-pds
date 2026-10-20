@@ -8,6 +8,10 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["python_workers"],
   "workers_dev": false,
+  // Static files served by the runtime before the Worker runs: the dashboard
+  // at /dashboard/ (built from dashboard/app.py). Nothing at public/ root, so
+  // "/" stays the Worker's landing page.
+  "assets": { "directory": "./public" },
   "routes": [{ "pattern": "rookery.latha.org", "custom_domain": true }],
   "durable_objects": {
     "bindings": [

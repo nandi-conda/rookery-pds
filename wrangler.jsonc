@@ -7,6 +7,8 @@
   "main": "src/entry.py",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["python_workers"],
+  // Static files (the dashboard under public/dashboard/) are served before the Worker runs.
+  "assets": { "directory": "./public" },
   "durable_objects": {
     "bindings": [
       { "name": "ACCOUNT", "class_name": "AccountDurableObject" },

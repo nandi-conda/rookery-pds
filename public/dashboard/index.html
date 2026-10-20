@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rookery Dashboard</title>
+  <link rel="icon" href="rookery-icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app"><p class="boot">Loading dashboard…</p></main>
+  <script type="module">
+    import { mount } from "./ultra.js";
+    import { rookeryImports } from "./rookery.js";
+    mount("#app", "./app.wasm", { imports: rookeryImports });
+  </script>
+</body>
+</html>
