@@ -112,7 +112,7 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
   </ul>
 
   <footer>
-    Powered by <a href="https://github.com/nandi-conda/rookery-pds">rookery</a>, an open-source PDS on the <a href="https://atproto.com">AT Protocol</a>.
+    Powered by <a href="https://github.com/nandi-conda/roost">roost</a>, a fork of sol pbc's rookery, an open-source PDS on the <a href="https://atproto.com">AT Protocol</a>.
   </footer>
 </main>
 </body>
