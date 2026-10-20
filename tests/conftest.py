@@ -22,10 +22,11 @@ OPERATOR_TOKEN = "test-operator-token"
 _names = itertools.count()
 
 
-def pytest_collection_modifyitems(items):
-    for item in items:
-        if inspect.iscoroutinefunction(getattr(item, "function", None)):
-            item.add_marker(pytest.mark.anyio)
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makeitem(collector, name, obj):
+    # Mark async tests for anyio before parametrization sees them.
+    if collector.funcnamefilter(name) and inspect.iscoroutinefunction(obj):
+        pytest.mark.anyio(obj)
 
 
 @pytest.fixture
