@@ -76,10 +76,11 @@ def sign_in_help(env, handle: str = "") -> str:
   <div>This host stores your account; you use it through an app like Bluesky.</div>
   <ol class="steps">
     <li>Open <a href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> (or the Bluesky phone app) and tap <b>Sign in</b>.</li>
-    <li>Under <b>Hosting provider</b>, tap <b>Bluesky Social</b>, choose <b>Custom</b>, and enter <code>https://{host}</code>.</li>
-    <li>Sign in with {who} and your password.</li>
+    <li>Enter {who} and your password. Bluesky finds this host from your handle.</li>
+    <li>When it asks you to confirm the hosting provider <code>{host}</code>, confirm.</li>
   </ol>
-  <div class="muted">Other atproto apps find this host from your handle, so there you just type the handle.</div>
+  <div class="muted">Signing in with your email instead? Set <b>Hosting provider</b> to <code>https://{host}</code> first,
+  since an email doesn't say where your account lives.</div>
   <div class="actions"><a class="button" href="https://bsky.app" target="_blank" rel="noopener">Open Bluesky</a></div>
   <div class="muted">To change your handle or password, <a href="/signin">sign in to {host}</a>.</div>
 </div>"""
