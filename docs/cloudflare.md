@@ -1,7 +1,7 @@
 # Running on Cloudflare Workers
 
 `wrangler.cloudflare.jsonc` deploys roost as the Python Worker `rookery-pds` on the
-custom domain `roost.latha.org`, with handles under `.agent.latha.org`.
+custom domain `roost.latha.org`, with handles under `.roost.latha.org`.
 `rookery.latha.org`, the old hostname, is still routed to the same Worker.
 Durable Objects hold each account's repo, D1 (`rookery-directory`) the account
 directory, R2 (`rookery-blobs`) blobs; wrangler creates the database and bucket
@@ -17,14 +17,19 @@ pixi run cf-secrets    # once: OAUTH_NONCE_SECRET
 ```
 
 Handles resolve over DNS: each needs a TXT record `_atproto.<handle>` =
-`"did=<did>"` in the latha.org zone, since `*.agent.latha.org` has no TLS
-certificate (Universal SSL covers only one level of subdomain). This
-deployment holds no Cloudflare API token, so the Worker skips that step and
-the operator writes each new handle's record by hand (the Cloudflare
-connector in a Claude session, or the dashboard); until then the handle does
-not verify. Setting `CLOUDFLARE_DNS_TOKEN` (Zone · DNS · Edit on `latha.org`)
-and `CLOUDFLARE_ZONE_ID` as secrets makes the Worker write them itself;
-`pixi run cf-drop-dns-token` removes them again.
+`"did=<did>"` in the latha.org zone, since `*.roost.latha.org` has no TLS
+certificate (Universal SSL covers only one level of subdomain, so an HTTPS
+`/.well-known/atproto-did` on each handle host would need Advanced Certificate
+Manager). The Worker writes the record itself on signup and on every handle
+change once it holds a Cloudflare API token with **Zone · DNS · Edit** on
+`latha.org` (`CLOUDFLARE_ZONE_ID` is already a var):
+
+```sh
+pixi run cf-dns-token        # paste the token; pixi run cf-drop-dns-token removes it
+```
+
+Without it the Worker skips that step and a new handle does not verify until
+someone writes its record by hand.
 
 ## Operator routes
 
@@ -67,3 +72,20 @@ pixi run sync-identities
 
 It re-signs each DID's PLC document with the new host and handle (skipping DIDs
 already there), then asks the relays to crawl the new host.
+
+## Changing the handle domain
+
+Set `ROOKERY_HANDLE_DOMAIN` to the new suffix and list the old one in
+`ROOKERY_LEGACY_HANDLE_DOMAINS`: an old handle then still finds its account
+(sign-in, `resolveHandle`, `repo=` parameters) under the same name. After
+deploying, move every account over:
+
+```sh
+pixi run rename-handles
+```
+
+It re-signs each DID's PLC document with `<name><new domain>`, emits an
+`#identity` event, writes the TXT record (with the DNS token set), checks each
+new handle resolves over DNS, and asks the relays to crawl. The old handles'
+TXT records can stay; they no longer verify on Bluesky, since the DID now names
+the new handle.

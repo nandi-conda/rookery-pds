@@ -101,3 +101,32 @@ async def test_change_handle(client):
 async def test_entry_points_link_sign_in(client):
     assert b'href="/signin"' in (await client.get("/", headers={"accept": "text/html"})).body
     assert b'href="/signin"' in (await client.get("/join")).body
+
+
+async def test_moving_the_handle_domain_keeps_old_handles_working(client, env):
+    from conftest import OPERATOR_TOKEN
+
+    dana = await human(client, "dana")
+    env.ROOKERY_HANDLE_DOMAIN = ".roost.test"
+    env.ROOKERY_LEGACY_HANDLE_DOMAINS = ".rookery.test"
+
+    # Before the account is renamed its stored handle still resolves as is.
+    resolved = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": "dana.rookery.test"})
+    assert resolved.status == 200 and resolved.json()["did"] == dana["did"]
+
+    synced = await client.post("/operator/identity/sync", json_body={"did": dana["did"], "handle": "dana.roost.test"},
+                               headers={"authorization": f"Bearer {OPERATOR_TOKEN}"})
+    assert synced.status == 200, synced.text
+    assert env.plc.log[dana["did"]][-1]["operation"]["alsoKnownAs"] == ["at://dana.roost.test"]
+    described = await client.get("/xrpc/com.atproto.repo.describeRepo", params={"repo": "dana.rookery.test"})
+    assert described.status == 200 and described.json()["handle"] == "dana.roost.test"
+    for handle in ("dana.roost.test", "Dana.rookery.test"):
+        resolved = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": handle})
+        assert resolved.status == 200 and resolved.json()["did"] == dana["did"]
+
+    for identifier in ("dana", "dana.roost.test", "dana.rookery.test"):
+        assert (await sign_in(client, identifier)).status == 303, identifier
+    # Only the old domain maps over; a different suffix or a deeper name does not.
+    for handle in ("dana.other.test", "x.dana.rookery.test"):
+        missing = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": handle})
+        assert missing.status == 404, handle

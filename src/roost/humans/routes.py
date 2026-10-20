@@ -17,6 +17,7 @@ from ..app import (
     check_handle_name,
     finish_consent,
     is_commons,
+    legacy_handle_alias,
     now_s,
     provision_account,
     read_json,
@@ -128,6 +129,9 @@ async def check_login(env, identifier: str, password: str) -> dict:
     if await store.too_many_failures(env.db, key):
         raise XrpcError("RateLimitExceeded", "Too many failed sign-in attempts. Try again in 15 minutes.", 429)
     login = await store.find_login(env.db, identifier)
+    alias = legacy_handle_alias(env, identifier)
+    if not login and alias:
+        login = await store.find_login(env.db, alias)
     if not login or not store.verify_password(password, login["password_hash"]):
         await store.note_login_failure(env.db, key)
         raise XrpcError("AuthenticationRequired", "Invalid identifier or password", 401)

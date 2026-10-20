@@ -119,6 +119,17 @@ def request_host(request, env) -> str:
     return host if host in legacy else env.ROOKERY_HOSTNAME
 
 
+def legacy_handle_alias(env, handle: str) -> str | None:
+    """`handle` moved under ROOKERY_HANDLE_DOMAIN when it ends with a former handle
+    domain in ROOKERY_LEGACY_HANDLE_DOMAINS, else None. Accounts keep their name
+    when the handle domain changes, so an old handle still finds its account."""
+    for domain in (env.ROOKERY_LEGACY_HANDLE_DOMAINS or "").split(","):
+        domain = domain.strip().lower()
+        if domain and handle.endswith(domain) and "." not in handle[: -len(domain)]:
+            return handle[: -len(domain)] + env.ROOKERY_HANDLE_DOMAIN
+    return None
+
+
 def public_request_url(request, env) -> str:
     """The public origin + path for DPoP htu checks."""
     return f"https://{request_host(request, env)}{request.path}{request.search}"
@@ -242,6 +253,9 @@ async def resolve_or_404(env, repo: str, code: str = "RepoNotFound", message: st
     try:
         return await directory.resolve_repo(env.db, repo)
     except directory.RepoNotFoundError as exc:
+        alias = legacy_handle_alias(env, repo.lower())
+        if alias:
+            return await resolve_or_404(env, alias, code, message)
         raise AuthFailure(error(code, message, 404)) from exc
 
 

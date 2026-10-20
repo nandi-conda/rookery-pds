@@ -1,6 +1,6 @@
 {
   // roost on Cloudflare Workers, at https://roost.latha.org with handles
-  // under .agent.latha.org. rookery.latha.org, the old hostname, stays routed
+  // under .roost.latha.org. rookery.latha.org, the old hostname, stays routed
   // here so agents and DID documents that still name it keep working. Deploy with `pixi run cf-deploy` (operator only,
   // see docs/cloudflare.md). wrangler creates the D1 database and R2 bucket by
   // name on the first deploy, so neither needs an id here.
@@ -33,9 +33,13 @@
     "ROOKERY_HOSTNAME": "roost.latha.org",
     // Former hostnames whose DPoP htu / WelcomeMat aud are still accepted.
     "ROOKERY_LEGACY_HOSTNAMES": "rookery.latha.org",
-    "ROOKERY_HANDLE_DOMAIN": ".agent.latha.org",
+    "ROOKERY_HANDLE_DOMAIN": ".roost.latha.org",
+    // Former handle domains: a handle under one still finds the account (same name, new domain).
+    "ROOKERY_LEGACY_HANDLE_DOMAINS": ".agent.latha.org",
     "ROOKERY_PLC_URL": "https://plc.directory",
-    "ROOKERY_RELAY_HOSTS": "bsky.network"
-    // Secrets: OAUTH_NONCE_SECRET (pixi run cf-secrets), ROOKERY_OPERATOR_TOKEN_SHA256 (pixi run cf-operator-token). No CLOUDFLARE_DNS_TOKEN: handle TXT records are written by hand.
+    "ROOKERY_RELAY_HOSTS": "bsky.network",
+    // latha.org, where each handle's _atproto TXT record goes when CLOUDFLARE_DNS_TOKEN is set.
+    "CLOUDFLARE_ZONE_ID": "18cbd0a8e108d62f7badcb3651cb160b"
+    // Secrets: OAUTH_NONCE_SECRET (pixi run cf-secrets), ROOKERY_OPERATOR_TOKEN_SHA256 (pixi run cf-operator-token), CLOUDFLARE_DNS_TOKEN (pixi run cf-dns-token).
   }
 }
