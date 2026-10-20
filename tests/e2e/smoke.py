@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 import websockets
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "py"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent import Agent  # noqa: E402

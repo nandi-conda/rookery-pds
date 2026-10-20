@@ -1,58 +1,28 @@
 [workspace]
 name = "rookery-pds"
-version = "0.2.0"
-description = "Rookery PDS fork with freeq SASL auth support, deployable to Fly.io"
+version = "0.3.0"
+description = "rookery, a multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
 authors = ["nandi"]
 license = "MIT"
-channels = [
-    "https://prefix.dev/pixi-experimental-backends",
-    "https://prefix.dev/conda-forge",
-]
+channels = ["https://prefix.dev/conda-forge"]
 platforms = ["linux-64", "osx-arm64"]
-preview = ["pixi-build"]
-
-[package]
-name = "rookery-pds"
-version = "0.2.0"
-description = "Rookery PDS fork with freeq SASL auth support"
-authors = ["nandi"]
-license = "MIT"
-publish = true
-
-[package.build.backend]
-name = "pixi-build-nodejs"
-version = ">=0.1.0"
-
-[package.build.config]
-# Use npm to build the Node.js app
-package-manager = "npm"
-
-[package.host-dependencies]
-nodejs = ">=22"
-
-[package.run-dependencies]
-nodejs = ">=22"
 
 [dependencies]
 nodejs = ">=22"
-flyctl = "*"
+uv = ">=0.12.3"
 
 [tasks]
+# --ignore-scripts: wrangler needs no native builds (its optional sharp would compile from source).
+install = { cmd = "npm ci --ignore-scripts && uv sync", inputs = ["package-lock.json", "uv.lock"] }
+test = { cmd = "uv run pytest -q", depends-on = ["install"] }
+dev = { cmd = "uv run pywrangler dev", depends-on = ["install"] }
 # Cloudflare Workers (operator only; `pixi run cf-login` once). See docs/cloudflare.md.
-# --ignore-scripts: deploying needs no native builds (wrangler's optional sharp would compile from source).
-cf-install = { cmd = "npm ci --ignore-scripts", inputs = ["package-lock.json"], outputs = ["node_modules/.package-lock.json"] }
-cf-login = { cmd = "node_modules/.bin/wrangler login", depends-on = ["cf-install"] }
-cf-deploy = { cmd = "node_modules/.bin/wrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+cf-login = { cmd = "uv run pywrangler login", depends-on = ["install"] }
+cf-deploy = { cmd = "uv run pywrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # Generates OAUTH_NONCE_SECRET. Handle TXT records are written by hand (Cloudflare connector), so the Worker holds no DNS token.
-cf-secrets = { cmd = "node -e \"process.stdout.write(require('crypto').randomBytes(32).toString('hex'))\" | node_modules/.bin/wrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+cf-secrets = { cmd = "python3 -c \"import secrets; print(secrets.token_hex(32), end='')\" | uv run pywrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # Removes the DNS token secrets from the Worker; signups then skip writing TXT records.
-cf-drop-dns-token = { cmd = "node_modules/.bin/wrangler secret delete CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && node_modules/.bin/wrangler secret delete CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
-cf-logs = { cmd = "node_modules/.bin/wrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["cf-install"] }
+cf-drop-dns-token = { cmd = "uv run pywrangler secret delete CLOUDFLARE_DNS_TOKEN -c wrangler.cloudflare.jsonc && uv run pywrangler secret delete CLOUDFLARE_ZONE_ID -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
+cf-logs = { cmd = "uv run pywrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # FROM=... TO=... ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host [did ...]
-migrate-host = "node scripts/migrate-host.mjs"
-# One machine only: a single celld node owns the bucket's fleet.
-deploy = "flyctl deploy --remote-only --ha=false"
-# MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=... pixi run fly-secrets
-fly-secrets = "flyctl secrets set -a rookery-pds MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD"
-build = "pixi build"
-publish = "pixi publish --to https://prefix.dev/channels/nandi-testing"
+migrate-host = { cmd = "uv run python scripts/migrate_host.py", depends-on = ["install"] }

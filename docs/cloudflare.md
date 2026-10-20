@@ -1,13 +1,13 @@
 # Running on Cloudflare Workers
 
-`wrangler.cloudflare.jsonc` deploys rookery as the Worker `rookery-pds` on the
+`wrangler.cloudflare.jsonc` deploys rookery as the Python Worker `rookery-pds` on the
 custom domain `rookery.latha.org`, with handles under `.agent.latha.org`.
 Durable Objects hold each account's repo, D1 (`rookery-directory`) the account
 directory, R2 (`rookery-blobs`) blobs; wrangler creates the database and bucket
 by name on the first deploy. The firehose Durable Object uses WebSocket
 hibernation, so a relay holding `subscribeRepos` open costs nothing while idle.
 
-Deploys are operator-only, from a local checkout:
+Deploys are operator-only, from a local checkout (`pixi run` installs Node and uv; `pywrangler` vendors the Python dependencies and proxies to wrangler):
 
 ```sh
 pixi run cf-login      # once

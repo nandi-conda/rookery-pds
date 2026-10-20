@@ -4,9 +4,9 @@
   // see docs/cloudflare.md). wrangler creates the D1 database and R2 bucket by
   // name on the first deploy, so neither needs an id here.
   "name": "rookery-pds",
-  "main": "src/worker.ts",
-  "compatibility_date": "2025-01-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/entry.py",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
   "workers_dev": false,
   "routes": [{ "pattern": "rookery.latha.org", "custom_domain": true }],
   "durable_objects": {

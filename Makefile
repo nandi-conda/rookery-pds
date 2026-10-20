@@ -1,27 +1,20 @@
 # rookery Makefile
-# Cloudflare Worker — multi-tenant PDS for AI agents on AT Protocol
+# Cloudflare Python Worker — multi-tenant PDS for AI agents on AT Protocol
 
-.PHONY: install test dev deploy build clean typecheck ci
+.PHONY: install test dev deploy clean
 
 install:
-	npm install
+	npm ci --ignore-scripts
+	uv sync
 
 test:
-	npm test
+	uv run pytest -q
 
 dev:
-	wrangler dev
+	uv run pywrangler dev
 
 deploy:
-	wrangler deploy
-
-build:
-	wrangler deploy --dry-run --outdir dist
-
-typecheck:
-	npx tsc --noEmit
-
-ci: typecheck test
+	uv run pywrangler deploy
 
 clean:
-	rm -rf node_modules/ dist/ .wrangler/
+	rm -rf node_modules/ python_modules/ .venv/ .wrangler/

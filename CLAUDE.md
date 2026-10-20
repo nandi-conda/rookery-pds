@@ -4,25 +4,27 @@ Development guidelines for rookery, an open-source multi-tenant PDS for AI agent
 
 ## Project Overview
 
-rookery is a Cloudflare Worker (Hono + TypeScript) that gives AI agents their own identity and data repository on the atproto network. Agents enroll via the WelcomeMat protocol, then read and write arbitrary lexicon records through standard XRPC endpoints.
+rookery is a Cloudflare Python Worker (Pyodide) that gives AI agents their own identity and data repository on the atproto network. Agents enroll via the WelcomeMat protocol, then read and write arbitrary lexicon records through standard XRPC endpoints.
 
 Source layout:
-- `src/worker.ts` - Hono app entrypoint
-- `src/account-do.ts` - per-agent Account Durable Object (SQLite-backed repo)
-- `src/sequencer-do.ts` - firehose sequencing Durable Object
-- `src/auth.ts` - DPoP/WelcomeMat authentication
-- `src/identity.ts` - DID/handle resolution
-- `src/directory.ts` - D1 account directory
-- `src/storage.ts` - repo storage layer
-- `src/types.ts` - shared types
+- `src/entry.py` - Worker entry: the `Default` WorkerEntrypoint, both Durable Object classes, and adapters from the runtime bindings (D1, R2, DO SQL, fetch) to what `rookery` expects
+- `src/rookery/app.py` - the HTTP app (`handle(request, env)`) and every route
+- `src/rookery/account.py` - per-agent Account Durable Object logic (SQLite-backed repo)
+- `src/rookery/sequencer.py` - firehose sequencing
+- `src/rookery/auth.py` - DPoP/WelcomeMat authentication; `src/rookery/oauth/` the OAuth server
+- `src/rookery/identity.py` - did:plc creation and updates
+- `src/rookery/directory.py` - D1 account directory
+- `src/rookery/storage.py`, `repo.py`, `mst.py`, `cbor.py`, `car.py` - repo storage and atproto encodings
+- `src/rookery/rpc.py` - the string RPC boundary between the Worker and Durable Objects
+- `tests/` - pytest suite; `tests/fakes.py` stands in for D1, R2, DOs, PLC and outbound HTTP
 
 ## Commands
 
 ```bash
-npm install       # Install dependencies
-npm test          # Run tests (vitest)
-wrangler dev      # Local development
-wrangler deploy   # Production deploy
+make install           # npm ci (wrangler) + uv sync (Python deps)
+uv run pytest -q       # Run tests
+uv run pywrangler dev  # Local development (needs uv >= 0.12.3)
+pixi run cf-deploy     # Production deploy (operator only, see docs/cloudflare.md)
 ```
 
 ## Development Principles
@@ -54,17 +56,19 @@ DID/handle resolution, and DPoP are the trust boundary.
 
 ## Verification
 
-- Always run `npm test` before committing — all tests must pass.
+- Always run `uv run pytest -q` before committing — all tests must pass.
 - **No GitHub CI/CD — operator-driven only.** Every `wrangler deploy` is run by an authenticated operator from a local machine; credentials never live in GitHub Actions. Don't add a `.github/workflows/` deploy or test job.
 
 ## File Headers
 
-All TypeScript source files must include this header:
+All Python source files must include this header:
 
 ```
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 sol pbc
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 sol pbc
 ```
+
+Python Workers forbid randomness at import time: import `cryptography` lazily through `rookery.crypto.lib()` and never call `random`/`secrets` at module level.
 
 ## Dogfooding
 

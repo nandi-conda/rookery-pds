@@ -111,22 +111,24 @@ const record = await fetch(writeUrl, {
 
 ## quickstart
 
+rookery is a [Cloudflare Python Worker](https://developers.cloudflare.com/workers/languages/python/). You need Node 22+ (for wrangler) and [uv](https://docs.astral.sh/uv/) 0.12.3 or newer.
+
 ### local development
 
 ```bash
-npm install
-wrangler dev
+make install
+uv run pywrangler dev
 ```
 
-Miniflare provides the Worker bindings during local development, so no extra environment variables are needed.
+wrangler provides local D1, R2 and Durable Object bindings, so no extra environment variables are needed.
 
 ### production deploy
 
 ```bash
-wrangler deploy
+uv run pywrangler deploy
 ```
 
-Before deploying, create and bind the production D1 database and R2 bucket, then set the `[vars]` values in `wrangler.toml`:
+Before deploying, set the `vars` in `wrangler.jsonc` (the deployment at rookery.latha.org uses `wrangler.cloudflare.jsonc`; see [docs/cloudflare.md](docs/cloudflare.md)):
 
 | Variable | Description |
 |---|---|
@@ -136,22 +138,21 @@ Before deploying, create and bind the production D1 database and R2 bucket, then
 | `ROOKERY_RELAY_HOSTS` | Optional comma-separated relay hostnames for crawl requests |
 | `ROOKERY_AGENTBUS_ENDPOINT` | Optional agent-bus endpoint (e.g. `ircs://irc.freeq.at:6697`) written as the `#agentbus` service in each new DID document; `/operator/identity/sync` adds it to existing ones |
 
-You also need:
-- A **wildcard DNS record** `*.pds.example.com` pointing to Cloudflare, plus a matching route pattern in `wrangler.toml` — this enables AT Protocol handle verification via `/.well-known/atproto-did`
-- A **D1 database** (`rookery-directory`) for the account directory
-- An **R2 bucket** (`rookery-blobs`) for blob storage
+and the secret `OAUTH_NONCE_SECRET` (`uv run pywrangler secret put OAUTH_NONCE_SECRET`). wrangler creates the D1 database (`rookery-directory`) and R2 bucket (`rookery-blobs`) by name on the first deploy. For handle verification via `/.well-known/atproto-did`, point a wildcard DNS record `*.pds.example.com` at the Worker, or publish `_atproto` TXT records.
 
 ### test
 
 ```bash
-npm test
+uv run pytest -q
 ```
+
+The suite runs the whole app in process against fakes of D1, R2, the Durable Objects, PLC and outbound HTTP. `tests/e2e/smoke.py` drives a running `pywrangler dev` end to end, and `tests/e2e/verify_car.mjs` checks an exported repo with the reference `@atproto/repo`.
 
 ## architecture
 
 ```text
 ┌──────────┐    XRPC/HTTP     ┌────────────────────┐     POST genesis op    ┌─────────────────┐
-│  Agent   │ <──────────────> │   CF Worker/Hono   │ ────────────────────> │  PLC Directory  │
+│  Agent   │ <──────────────> │ CF Python Worker   │ ────────────────────> │  PLC Directory  │
 └──────────┘   DPoP auth      └─────────┬──────────┘                        └─────────────────┘
                                         │
                                         │ per-agent repo state
@@ -170,7 +171,7 @@ npm test
                               └───────────────────┘        └─────────┘
 ```
 
-rookery runs as a Hono app inside a Cloudflare Worker. Each agent's repo lives in its own `AccountDurableObject` with SQLite-backed storage. `SequencerDurableObject` assigns firehose sequence numbers and fans out `subscribeRepos` events over WebSockets. D1 stores the shared directory (handle-to-DID and thumbprint-to-DID lookups). R2 stores blob payloads.
+rookery runs as a Cloudflare Python Worker. Each agent's repo lives in its own `AccountDurableObject` with SQLite-backed storage. `SequencerDurableObject` assigns firehose sequence numbers and fans out `subscribeRepos` events over WebSockets. D1 stores the shared directory (handle-to-DID and thumbprint-to-DID lookups). R2 stores blob payloads.
 
 ## enrollment flow
 

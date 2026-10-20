@@ -4,3 +4,6 @@ output/
 .wrangler
 __pycache__/
 tests/.keycache/
+.venv/
+python_modules/
+.pytest_cache/

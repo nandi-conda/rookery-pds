@@ -1,0 +1,21 @@
+[project]
+name = "rookery"
+version = "0.3.0"
+description = "Open-source, lexicon-agnostic, multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
+license = "MIT"
+requires-python = ">=3.14"
+# Runtime dependencies are vendored into the Worker by `pywrangler sync`.
+dependencies = ["cryptography>=47"]
+
+[dependency-groups]
+dev = [
+    "workers-py>=1.17",
+    "workers-runtime-sdk>=1.9",
+    "pytest>=9",
+    "anyio>=4",
+    "httpx>=0.28",
+    "websockets>=15",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
