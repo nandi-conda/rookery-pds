@@ -1187,9 +1187,11 @@ async def get_record(request, env):
         return error("InvalidRequest", "Missing required parameters: repo, collection, rkey", 400)
     resolved = await resolve_or_404(env, repo)
     found = await env.account(resolved["do_id"]).get_record(collection=collection, rkey=rkey)
+    uri = f"at://{resolved['did']}/{collection}/{rkey}"
     if not found:
-        return error("RecordNotFound", "Record not found", 404)
-    return json_response({"uri": f"at://{resolved['did']}/{collection}/{rkey}", "cid": found["cid"], "value": found["record"]})
+        # 400, as the reference PDS answers; clients such as Colibri treat it as "no record yet".
+        return error("RecordNotFound", f"Could not locate record: {uri}", 400)
+    return json_response({"uri": uri, "cid": found["cid"], "value": found["record"]})
 
 
 @router.get("/xrpc/com.atproto.repo.listRecords")

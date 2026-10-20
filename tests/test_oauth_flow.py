@@ -281,7 +281,7 @@ async def test_scopes_gate_writes_and_blob_uploads(client, issue):
     }))
     got = await client.get("/xrpc/com.atproto.repo.getRecord",
                            params={"repo": token["sub"], "collection": "com.example.allowed", "rkey": "allowed-create"})
-    assert got.status == 404
+    assert got.status == 400 and got.json()["error"] == "RecordNotFound"
 
     upload = "/xrpc/com.atproto.repo.uploadBlob"
     for scope, status in (("atproto repo:com.example.test", 403), ("atproto transition:generic", 200)):

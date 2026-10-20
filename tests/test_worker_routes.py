@@ -128,4 +128,4 @@ async def test_authenticated_repo_write_routes(client, enroll):
     assert result["uri"] == f"at://{rook.did}/app.bsky.feed.post/write-rkey"
     assert (await rook.post("/xrpc/com.atproto.repo.deleteRecord", base)).status == 200
     got = await client.get("/xrpc/com.atproto.repo.getRecord", params=base)
-    assert got.status == 404
+    assert got.status == 400 and got.json()["error"] == "RecordNotFound"
