@@ -280,8 +280,10 @@ class SequencerDurableObject(DurableObject):
         upgrade = raw.headers.get("Upgrade")
         if not upgrade or str(upgrade).lower() != "websocket":
             return Response("Expected WebSocket upgrade", status=426)
+        # A missing param is JS null, which Pyodide hands over as jsnull, not None.
+        raw_cursor = js.URL.new(raw.url).searchParams.get("cursor")
         try:
-            cursor = self.sequencer.parse_cursor(js.URL.new(raw.url).searchParams.get("cursor"))
+            cursor = self.sequencer.parse_cursor(raw_cursor if isinstance(raw_cursor, str) else None)
         except ValueError:
             return Response("Invalid cursor", status=400)
         pair = js.WebSocketPair.new()
