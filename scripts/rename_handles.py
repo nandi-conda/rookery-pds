@@ -25,7 +25,7 @@ import httpx
 
 from migrate_host import RELAYS, list_dids, ok, operator_token
 
-DOH = "https://cloudflare-dns.com/dns-query"
+DOH = "https://dns.google/resolve"
 
 
 def txt_did(http: httpx.Client, handle: str) -> str | None:
