@@ -7,9 +7,9 @@ from . import cbor
 from .cbor import CID, _read_varint, _varint
 
 
-def write_car(root: CID, blocks) -> bytes:
-    """`blocks` is an iterable of (CID, bytes)."""
-    header = cbor.encode({"version": 1, "roots": [root]})
+def write_car(root: CID | None, blocks) -> bytes:
+    """`blocks` is an iterable of (CID, bytes); a CAR without a root (getBlocks) has no roots."""
+    header = cbor.encode({"version": 1, "roots": [root] if root else []})
     out = bytearray(_varint(len(header)))
     out += header
     for cid, raw in blocks:

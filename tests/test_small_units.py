@@ -43,6 +43,11 @@ def test_nonce_requires_a_secret():
 
 # OAuth discovery metadata
 
+async def test_jwks_and_health(client):
+    assert (await client.get("/oauth/jwks")).json() == {"keys": []}
+    assert (await client.get("/xrpc/_health")).json() == {"status": "ok"}
+
+
 async def test_authorization_server_metadata(client):
     response = await client.get("/.well-known/oauth-authorization-server")
     assert response.status == 200
@@ -58,10 +63,11 @@ async def test_authorization_server_metadata(client):
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
         "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
-        "scopes_supported": ["atproto"],
+        "scopes_supported": ["atproto", "transition:generic"],
         "dpop_signing_alg_values_supported": ["ES256"],
         "authorization_response_iss_parameter_supported": True,
         "client_id_metadata_document_supported": True,
+        "jwks_uri": f"{ISSUER}/oauth/jwks",
         "revocation_endpoint": f"{ISSUER}/oauth/revoke",
         "revocation_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
         "revocation_endpoint_auth_signing_alg_values_supported": ["ES256"],

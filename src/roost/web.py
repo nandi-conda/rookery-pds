@@ -52,6 +52,9 @@ class Request:
                 return value
         return None
 
+    def query_all(self, name: str) -> list[str]:
+        return [value for key, value in self._query if key == name]
+
     async def bytes(self) -> bytes:
         if self._body is None:
             self._body = await self._body_reader() if self._body_reader else b""

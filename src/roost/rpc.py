@@ -89,7 +89,7 @@ ACCOUNT_METHODS = frozenset({
     "init_account", "sign_with_rotation_key", "set_handle", "sign_service_auth", "get_state",
     "get_latest_commit", "get_repo_status", "describe_repo", "has_published", "get_record",
     "list_records", "create_record", "put_record", "delete_record", "apply_writes", "insert_blob",
-    "list_blobs", "export_repo", "export_account", "import_account", "takedown",
+    "list_blobs", "get_blocks", "export_repo", "export_account", "import_account", "takedown",
 }) | SPACE_METHODS
 
 

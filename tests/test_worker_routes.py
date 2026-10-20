@@ -5,6 +5,8 @@
 
 import pytest
 
+from roost.car import read_car
+
 
 async def test_cors_on_get(client):
     response = await client.get("/")
@@ -73,6 +75,15 @@ async def test_repo_read_and_sync_routes(client, enroll):
     body = described.json()
     assert body["did"] == rook.did and body["collections"] == ["app.bsky.feed.post"]
     assert isinstance(body["handle"], str) and body["handleIsCorrect"] is True
+    assert body["didDoc"]["id"] == rook.did
+
+    blocks = await client.get("/xrpc/com.atproto.sync.getBlocks", params={"did": rook.did, "cids": body["cid"]})
+    assert blocks.status == 200 and blocks.headers["content-type"] == "application/vnd.ipld.car"
+    roots, got = read_car(blocks.body)
+    assert roots == [] and [str(cid) for cid in got] == [body["cid"]]
+    missing = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm"
+    blocks = await client.get("/xrpc/com.atproto.sync.getBlocks", params={"did": rook.did, "cids": missing})
+    assert blocks.status == 400 and missing in blocks.json()["message"]
 
     latest = await client.get("/xrpc/com.atproto.sync.getLatestCommit", params={"did": rook.did})
     assert latest.status == 200

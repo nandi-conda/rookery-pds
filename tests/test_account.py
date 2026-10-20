@@ -54,7 +54,7 @@ async def test_describe_repo_lists_collections(provisioned):
     await provisioned.create_record(collection=POST, rkey=None, record={"text": "test"})
     described = await provisioned.describe_repo()
     assert described["did"] == DID and POST in described["collections"] and described["cid"]
-    assert described["handle"] == HANDLE and described["handleIsCorrect"] is True
+    assert described["handle"] == HANDLE
 
 
 async def test_delete_record(provisioned):

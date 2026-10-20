@@ -198,7 +198,6 @@ class Account(SpaceMethods):
             "collections": self.storage.get_collections(),
             "cid": str(repo.cid),
             "handle": self._state()["handle"],
-            "handleIsCorrect": True,
         }
 
     async def has_published(self) -> bool:
@@ -320,6 +319,13 @@ class Account(SpaceMethods):
         if not state or not state.get("root_cid"):
             raise RepoError("Repo has no root")
         return car.write_car(CID.parse(state["root_cid"]), self.storage.all_blocks())
+
+    async def get_blocks(self, cids: list[str]) -> bytes:
+        found = [(cid, self.storage.get_block(cid)) for cid in cids]
+        missing = [cid for cid, raw in found if raw is None]
+        if missing:
+            raise RepoError(f"Could not find cids: {', '.join(missing)}")
+        return car.write_car(None, found)
 
     async def export_account(self) -> dict:
         return self.storage.dump()

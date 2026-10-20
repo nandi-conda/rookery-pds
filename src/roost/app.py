@@ -51,6 +51,7 @@ from .oauth.client_metadata import (
 from .oauth.dpop import DpopError, UseDpopNonceError, validate_oauth_dpop_proof
 from .oauth.metadata import (
     AUTHORIZE_PATH,
+    JWKS_PATH,
     PAR_PATH,
     REVOKE_PATH,
     TOKEN_PATH,
@@ -61,7 +62,9 @@ from .oauth.nonce import derive_dpop_nonce
 from .oauth.resource_server import InvalidOauthTokenError, resolve_oauth_access_token
 from .oauth.permission_sets import PermissionSetError, effective_scope
 from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_aud, is_valid_scope_string
+from .cbor import CID
 from .repo import RepoError
+from .spaces.identity import IdentityError, resolve_did_doc
 from .syntax import InvalidHandleError, ensure_valid_handle, is_valid_did, is_valid_nsid
 from .texts import tos_text, welcome_text
 from .urls import parse_url
@@ -425,6 +428,17 @@ async def welcome(request, env):
 @router.get("/.well-known/oauth-authorization-server")
 async def oauth_server_metadata(request, env):
     return json_response(authorization_server_metadata(origin(env)))
+
+
+@router.get(JWKS_PATH)
+async def oauth_jwks(request, env):
+    # Roost signs no OAuth artifacts (tokens are opaque, DPoP keys are the client's).
+    return json_response({"keys": []})
+
+
+@router.get("/xrpc/_health")
+async def health(request, env):
+    return json_response({"status": "ok"})
 
 
 @router.get("/.well-known/oauth-protected-resource")
@@ -1213,7 +1227,13 @@ async def describe_repo(request, env):
     if not repo:
         return error("InvalidRequest", "Missing required parameter: repo", 400)
     resolved = await resolve_or_404(env, repo)
-    return json_response(await env.account(resolved["do_id"]).describe_repo())
+    described = await env.account(resolved["do_id"]).describe_repo()
+    try:
+        did_doc = await resolve_did_doc(env, described["did"])
+    except IdentityError as exc:
+        return error("InvalidRequest", f"Could not resolve DID: {exc}", 400)
+    handle_is_correct = f"at://{described['handle']}" in (did_doc.get("alsoKnownAs") or [])
+    return json_response(dict(described, didDoc=did_doc, handleIsCorrect=handle_is_correct))
 
 
 @router.get("/xrpc/com.atproto.sync.listRepos")
@@ -1509,6 +1529,25 @@ async def get_repo(request, env):
         return error("InvalidRequest", "Missing required parameter: did", 400)
     resolved = await resolve_or_404(env, did)
     car = await env.account(resolved["do_id"]).export_repo()
+    return body_response(car, 200, "application/vnd.ipld.car")
+
+
+MAX_GET_BLOCKS = 1000
+
+
+@router.get("/xrpc/com.atproto.sync.getBlocks")
+async def get_blocks(request, env):
+    did, cids = request.query("did"), request.query_all("cids")
+    if not did or not cids:
+        return error("InvalidRequest", "Missing required parameters: did, cids", 400)
+    if len(cids) > MAX_GET_BLOCKS:
+        return error("InvalidRequest", f"At most {MAX_GET_BLOCKS} cids per request", 400)
+    try:
+        cids = [str(CID.parse(cid)) for cid in cids]
+    except ValueError:
+        return error("InvalidRequest", "Invalid cid", 400)
+    resolved = await resolve_or_404(env, did)
+    car = await env.account(resolved["do_id"]).get_blocks(cids=cids)
     return body_response(car, 200, "application/vnd.ipld.car")
 
 

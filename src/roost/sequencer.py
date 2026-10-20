@@ -22,6 +22,9 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS firehose_events (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )"""
 
+MIGRATIONS_SCHEMA = "CREATE TABLE IF NOT EXISTS sequencer_migrations (name TEXT PRIMARY KEY)"
+DROP_NULL_STATUS = "account-drop-null-status"
+
 BACKFILL_LIMIT = 1000
 TOO_BIG_BYTES = 1_000_000
 
@@ -43,6 +46,22 @@ class Sequencer:
         self.sql = sql
         self.sockets = sockets
         self.sql.exec(SCHEMA)
+        self.sql.exec(MIGRATIONS_SCHEMA)
+        if not self.sql.exec("SELECT 1 AS x FROM sequencer_migrations WHERE name = ?", DROP_NULL_STATUS):
+            self._drop_null_account_status()
+            self.sql.exec("INSERT INTO sequencer_migrations (name) VALUES (?)", DROP_NULL_STATUS)
+
+    def _drop_null_account_status(self) -> None:
+        """#account frames once carried status: null; the lexicon only allows a known string or no field."""
+        for row in self.sql.exec("SELECT seq, payload FROM firehose_events WHERE event_type = 'account'"):
+            payload = bytes(row["payload"])
+            header, pos = cbor.decode_first(payload)
+            body = cbor.decode(payload[pos:])
+            if "status" in body and body["status"] is None:
+                del body["status"]
+                self.sql.exec(
+                    "UPDATE firehose_events SET payload = ? WHERE seq = ?", cbor.encode(header) + cbor.encode(body), row["seq"],
+                )
 
     def _append(self, did: str, event_type: str, t: str, body: dict) -> int:
         seq = self.sql.exec(
@@ -84,9 +103,10 @@ class Sequencer:
         return {"seq": self._append(did, "identity", "#identity", {"did": did, "handle": handle, "time": now_iso()})}
 
     def sequence_account(self, did: str, active: bool, status: str | None) -> dict:
-        return {"seq": self._append(did, "account", "#account", {
-            "did": did, "active": active, "status": status, "time": now_iso(),
-        })}
+        body = {"did": did, "active": active, "time": now_iso()}
+        if status is not None:
+            body["status"] = status
+        return {"seq": self._append(did, "account", "#account", body)}
 
     def latest_seq(self) -> int:
         rows = self.sql.exec("SELECT MAX(seq) AS seq FROM firehose_events")

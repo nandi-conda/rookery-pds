@@ -5,6 +5,7 @@ PAR_PATH = "/oauth/par"
 AUTHORIZE_PATH = "/oauth/authorize"
 TOKEN_PATH = "/oauth/token"
 REVOKE_PATH = "/oauth/revoke"
+JWKS_PATH = "/oauth/jwks"
 
 
 def authorization_server_metadata(issuer: str) -> dict:
@@ -20,10 +21,11 @@ def authorization_server_metadata(issuer: str) -> dict:
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
         "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
-        "scopes_supported": ["atproto"],
+        "scopes_supported": ["atproto", "transition:generic"],
         "dpop_signing_alg_values_supported": ["ES256"],
         "authorization_response_iss_parameter_supported": True,
         "client_id_metadata_document_supported": True,
+        "jwks_uri": f"{issuer}{JWKS_PATH}",
         "revocation_endpoint": f"{issuer}{REVOKE_PATH}",
         "revocation_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
         "revocation_endpoint_auth_signing_alg_values_supported": ["ES256"],

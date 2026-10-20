@@ -8,7 +8,7 @@ import pytest
 from fakes import SequencerDO
 from roost import cbor
 from roost.cbor import CID
-from roost.sequencer import BACKFILL_LIMIT
+from roost.sequencer import BACKFILL_LIMIT, Sequencer
 
 
 def cid_of(value) -> str:
@@ -45,6 +45,33 @@ def test_sequence_commit_stores_a_commit_event(sequencer_do):
 def test_sequence_account_stores_an_account_event(sequencer_do):
     assert sequencer_do.sequencer.sequence_account(did="did:plc:x", active=True, status=None) == {"seq": 1}
     assert event_types(sequencer_do) == ["account"]
+
+
+def account_bodies(sequencer_do) -> list[dict]:
+    bodies = []
+    for row in sequencer_do.rows():
+        payload = bytes(row["payload"])
+        _, pos = cbor.decode_first(payload)
+        bodies.append(cbor.decode(payload[pos:]))
+    return bodies
+
+
+def test_account_event_omits_a_null_status(sequencer_do):
+    sequencer_do.sequencer.sequence_account(did="did:plc:x", active=True, status=None)
+    sequencer_do.sequencer.sequence_account(did="did:plc:x", active=False, status="deactivated")
+    bodies = account_bodies(sequencer_do)
+    assert "status" not in bodies[0] and bodies[1]["status"] == "deactivated"
+
+
+def test_startup_drops_null_status_from_stored_account_events(sequencer_do):
+    """#account frames written before the fix carried status: null; the lexicon has no null."""
+    frame = cbor.encode({"op": 1, "t": "#account"}) + cbor.encode(
+        {"did": "did:plc:x", "active": True, "status": None, "time": "2026-10-20T00:00:00.000Z", "seq": 1}
+    )
+    sequencer_do.sql.exec("DELETE FROM sequencer_migrations")
+    sequencer_do.sql.exec("INSERT INTO firehose_events (did, event_type, payload) VALUES (?, 'account', ?)", "did:plc:x", frame)
+    Sequencer(sequencer_do.sql, lambda: [])
+    assert account_bodies(sequencer_do) == [{"did": "did:plc:x", "active": True, "time": "2026-10-20T00:00:00.000Z", "seq": 1}]
 
 
 async def test_signup_emits_identity_then_account(env, enroll):
