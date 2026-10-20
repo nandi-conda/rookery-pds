@@ -200,7 +200,7 @@ def _collect(writes: list, collection: str, validate, fail) -> list[dict]:
                 fail("delete requires rkey")
             out.append({"kind": "delete", "rkey": write["rkey"]})
         else:
-            out.append({"kind": "put", "rkey": write.get("rkey"), "record": validate(write.get("rkey"), write.get("record"))})
+            out.append({"kind": "put", "rkey": write.get("rkey"), "record": validate(write.get("rkey"), write.get("value"))})
     return out
 
 
@@ -388,4 +388,4 @@ def check_service_writes(writes: list) -> None:
     for write in writes:
         if not is_service_collection(write.get("collection", "")) or write.get("$type") == DELETE_TYPE:
             continue
-        validate_service_record(write["collection"], write.get("rkey"), write.get("record"))
+        validate_service_record(write["collection"], write.get("rkey"), write.get("value"))

@@ -113,6 +113,12 @@ class RepoStorage:
     def get_collections(self) -> list[str]:
         return [row["collection"] for row in self.sql.exec("SELECT collection FROM collections ORDER BY collection")]
 
+    def count_blocks(self) -> int:
+        return self.sql.exec("SELECT COUNT(*) AS n FROM blocks")[0]["n"]
+
+    def count_blobs(self) -> int:
+        return self.sql.exec("SELECT COUNT(*) AS n FROM blobs")[0]["n"]
+
     def insert_blob(self, cid: str, mime_type: str, size: int) -> None:
         self.sql.exec(
             "INSERT OR IGNORE INTO blobs (cid, mime_type, size) VALUES (?, ?, ?)", cid, mime_type, size

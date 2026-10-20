@@ -275,7 +275,7 @@ async def test_scopes_gate_writes_and_blob_uploads(client, issue):
         "repo": token["sub"],
         "writes": [
             {"$type": "com.atproto.repo.applyWrites#create", "collection": "com.example.allowed",
-             "rkey": "allowed-create", "record": {"text": "allowed"}},
+             "rkey": "allowed-create", "value": {"text": "allowed"}},
             {"$type": "com.atproto.repo.applyWrites#delete", "collection": "com.example.denied", "rkey": "denied-delete"},
         ],
     }))
@@ -299,10 +299,17 @@ async def test_service_auth_requires_a_matching_rpc_scope(client, issue):
     aud, lxm = "did:web:knot.rook.host", "sh.tangled.repo.create"
     path = "/xrpc/com.atproto.server.getServiceAuth"
 
-    _, par, token = await issue("atproto transition:generic")
+    _, par, token = await issue("atproto repo:com.example.test")
     response = await client.get(path, params={"aud": aud, "lxm": lxm},
                                 headers=oauth_headers(par.key, "GET", path, token["access_token"]))
     assert response.status == 403 and response.json()["error"] == "InsufficientScope"
+
+    # transition:generic covers every lxm but chat.bsky.*, as @atproto/oauth-scopes does.
+    _, par, token = await issue("atproto transition:generic")
+    for method, status in ((lxm, 200), ("chat.bsky.convo.getLog", 403)):
+        response = await client.get(path, params={"aud": aud, "lxm": method},
+                                    headers=oauth_headers(par.key, "GET", path, token["access_token"]))
+        assert response.status == status, response.text
 
     _, par, token = await issue(f"atproto rpc:{lxm}?aud={aud}")
     exp = int(time.time()) + 120

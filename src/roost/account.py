@@ -173,6 +173,22 @@ class Account(SpaceMethods):
             "active": state["active"] == 1,
         }
 
+    async def account_status(self) -> dict:
+        """What com.atproto.server.checkAccountStatus and getRecommendedDidCredentials report."""
+        state = self._state()
+        return {
+            "did": state["did"],
+            "handle": state["handle"],
+            "active": state["active"] == 1,
+            "root_cid": state["root_cid"],
+            "rev": state["rev"],
+            "signing_did": f"did:key:{state['signing_key_pub']}",
+            "rotation_did": f"did:key:{state['rotation_key_pub']}",
+            "blocks": self.storage.count_blocks(),
+            "records": sum(1 for _ in self._repo().walk_records()),
+            "blobs": self.storage.count_blobs(),
+        }
+
     async def get_latest_commit(self) -> dict | None:
         state = self.storage.get_state()
         if not state or not state.get("root_cid") or not state.get("rev"):
@@ -277,7 +293,7 @@ class Account(SpaceMethods):
                 raise RepoError("Each write requires a collection")
             if kind == "com.atproto.repo.applyWrites#create":
                 rkey = write.get("rkey") or next_rkey()
-                ops.append(Write("create", collection, rkey, to_lex_record(write.get("record"))))
+                ops.append(Write("create", collection, rkey, to_lex_record(write.get("value"))))
                 results.append({
                     "$type": "com.atproto.repo.applyWrites#createResult",
                     "uri": f"at://{did}/{collection}/{rkey}",
@@ -285,7 +301,7 @@ class Account(SpaceMethods):
             elif kind == "com.atproto.repo.applyWrites#update":
                 if not write.get("rkey"):
                     raise RepoError("Update requires rkey")
-                ops.append(Write("update", collection, write["rkey"], to_lex_record(write.get("record"))))
+                ops.append(Write("update", collection, write["rkey"], to_lex_record(write.get("value"))))
                 results.append({
                     "$type": "com.atproto.repo.applyWrites#updateResult",
                     "uri": f"at://{did}/{collection}/{write['rkey']}",

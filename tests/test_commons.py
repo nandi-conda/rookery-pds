@@ -521,7 +521,7 @@ async def test_takedown_emits_chunked_delete_commits_then_the_account_frame(env,
     rook = await invited("takedown-firehose")
     await env.account_do(await _do_id(env, rook.did)).account.apply_writes(writes=[
         {"$type": "com.atproto.repo.applyWrites#create", "collection": "app.bsky.feed.post",
-         "rkey": f"r{index:03d}", "record": {"text": f"post {index}"}}
+         "rkey": f"r{index:03d}", "value": {"text": f"post {index}"}}
         for index in range(201)
     ])
     socket = env.sequencer.connect()

@@ -176,16 +176,16 @@ async def test_apply_writes_indexes_agents_atomically_with_validation(client, en
     create = "com.atproto.repo.applyWrites#create"
     collection = "org.latha.agentbus.agent"
     bad = await call(host, "applyWrites", {"repo": host.did, "writes": [
-        {"$type": create, "collection": collection, "rkey": "a", "record": agent_record("a")},
-        {"$type": create, "collection": collection, "rkey": "b", "record": agent_record("c")},
+        {"$type": create, "collection": collection, "rkey": "a", "value": agent_record("a")},
+        {"$type": create, "collection": collection, "rkey": "b", "value": agent_record("c")},
     ]})
     assert bad.status == 400 and bad.json()["error"] == "InvalidRecord"
     assert (await list_agents(client, did=host.did))[1]["agents"] == []
 
     good = await call(host, "applyWrites", {"repo": host.did, "writes": [
-        {"$type": create, "collection": collection, "rkey": "a", "record": agent_record("a")},
-        {"$type": create, "collection": collection, "rkey": "b", "record": agent_record("b")},
-        {"$type": create, "collection": "com.example.other", "record": {"text": "untouched"}},
+        {"$type": create, "collection": collection, "rkey": "a", "value": agent_record("a")},
+        {"$type": create, "collection": collection, "rkey": "b", "value": agent_record("b")},
+        {"$type": create, "collection": "com.example.other", "value": {"text": "untouched"}},
     ]})
     assert good.status == 200
     assert names((await list_agents(client, did=host.did))[1]) == ["a", "b"]

@@ -18,19 +18,25 @@ def _agentbus_service(endpoint: str | None) -> dict:
     return {"agentbus": {"type": "AgentBusEndpoint", "endpoint": endpoint}} if endpoint else {}
 
 
-def build_unsigned_genesis_op(handle: str, hostname: str, signing: Secp256k1Keypair,
-                              rotation: Secp256k1Keypair, agentbus_endpoint: str | None = None) -> dict:
+def did_credentials(handle: str, pds_endpoint: str, signing_did: str, rotation_did: str,
+                    agentbus_endpoint: str | None = None) -> dict:
+    """The identity fields a roost account's DID document should carry
+    (com.atproto.identity.getRecommendedDidCredentials, and the genesis op)."""
     return {
-        "type": "plc_operation",
-        "rotationKeys": [rotation.did()],
-        "verificationMethods": {"atproto": signing.did()},
+        "rotationKeys": [rotation_did],
+        "verificationMethods": {"atproto": signing_did},
         "alsoKnownAs": [f"at://{handle}"],
         "services": {
-            "atproto_pds": {"type": "AtprotoPersonalDataServer", "endpoint": f"https://{hostname}"},
+            "atproto_pds": {"type": "AtprotoPersonalDataServer", "endpoint": pds_endpoint},
             **_agentbus_service(agentbus_endpoint),
         },
-        "prev": None,
     }
+
+
+def build_unsigned_genesis_op(handle: str, hostname: str, signing: Secp256k1Keypair,
+                              rotation: Secp256k1Keypair, agentbus_endpoint: str | None = None) -> dict:
+    credentials = did_credentials(handle, f"https://{hostname}", signing.did(), rotation.did(), agentbus_endpoint)
+    return {"type": "plc_operation", **credentials, "prev": None}
 
 
 def sign_genesis_op(unsigned: dict, rotation: Secp256k1Keypair) -> tuple[dict, str]:

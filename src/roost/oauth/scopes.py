@@ -124,10 +124,12 @@ def enforce_scope(scope: str, op: str, writes: list[tuple[str, str]]) -> str | N
 
 
 def enforce_rpc_scope(scope: str, lxm: str, aud: str) -> str | None:
+    """transition:generic covers every service call but chat.bsky.*, as in @atproto/oauth-scopes."""
     tokens = parse_scope(scope)
     if tokens is None:
         return "scope"
-    permitted = any(
+    has_transition = any(token["kind"] == "transition" for token in tokens)
+    permitted = (has_transition and not lxm.startswith("chat.bsky.")) or any(
         token["kind"] == "rpc" and token["lxm"] in ("*", lxm) and aud_matches(token["aud"], aud)
         for token in tokens
     )

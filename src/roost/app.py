@@ -64,7 +64,7 @@ from .oauth.permission_sets import PermissionSetError, effective_scope
 from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_aud, is_valid_scope_string
 from .cbor import CID
 from .repo import RepoError
-from .spaces.identity import IdentityError, resolve_did_doc
+from .spaces.identity import IdentityError, doc_service_endpoint, doc_signing_key, resolve_did_doc
 from .syntax import InvalidHandleError, ensure_valid_handle, is_valid_did, is_valid_nsid
 from .texts import tos_text, welcome_text
 from .urls import parse_url
@@ -1347,6 +1347,56 @@ async def get_session(request, env):
     return json_response({"did": row["did"], "handle": row["handle"], "active": True})
 
 
+@router.get("/xrpc/com.atproto.server.checkAccountStatus")
+async def check_account_status(request, env):
+    auth = await authenticate(request, env, "GET")
+    status = await env.account(auth["do_id"]).account_status()
+    try:
+        doc = await resolve_did_doc(env, status["did"], force_refresh=True)
+    except IdentityError:
+        doc = None
+    return json_response({
+        "activated": status["active"],
+        "validDid": doc is not None and _did_doc_matches(doc, status, origin(env)),
+        "repoCommit": status["root_cid"],
+        "repoRev": status["rev"],
+        "repoBlocks": status["blocks"],
+        "indexedRecords": status["records"],
+        "privateStateValues": 0,
+        "expectedBlobs": status["blobs"],
+        "importedBlobs": status["blobs"],
+    })
+
+
+def _did_doc_matches(doc: dict, status: dict, pds_endpoint: str) -> bool:
+    """The DID document names this PDS and the account's signing key."""
+    return (
+        doc_service_endpoint(doc, "atproto_pds") == pds_endpoint
+        and doc_signing_key(doc) == status["signing_did"]
+    )
+
+
+@router.get("/xrpc/com.atproto.identity.getRecommendedDidCredentials")
+async def get_recommended_did_credentials(request, env):
+    auth = await authenticate(request, env, "GET")
+    status = await env.account(auth["do_id"]).account_status()
+    return json_response(identity.did_credentials(
+        status["handle"], origin(env), status["signing_did"], status["rotation_did"], env.ROOKERY_AGENTBUS_ENDPOINT,
+    ))
+
+
+@router.get("/xrpc/com.atproto.server.listAppPasswords")
+async def list_app_passwords(request, env):
+    await authenticate(request, env, "GET")
+    return json_response({"passwords": []})  # roost has no app passwords
+
+
+@router.get("/xrpc/com.atproto.server.getAccountInviteCodes")
+async def get_account_invite_codes(request, env):
+    await authenticate(request, env, "GET")
+    return json_response({"codes": []})  # invites are operator-minted, never per-account
+
+
 @router.get("/xrpc/com.atproto.server.getServiceAuth")
 async def get_service_auth(request, env):
     aud, lxm = request.query("aud"), request.query("lxm")
@@ -1429,7 +1479,7 @@ async def create_record(request, env):
     require_scope(auth, "write", [(body["collection"], "create")])
     index = _check_agent_writes([{
         "$type": "com.atproto.repo.applyWrites#create", "collection": body["collection"],
-        "rkey": body.get("rkey"), "record": body["record"],
+        "rkey": body.get("rkey"), "value": body["record"],
     }])
     result = await env.account(auth["do_id"]).create_record(
         collection=body["collection"], rkey=body.get("rkey") or None, record=body["record"],
@@ -1451,7 +1501,7 @@ async def put_record(request, env):
     require_scope(auth, "write", [(body["collection"], "create"), (body["collection"], "update")])
     index = _check_agent_writes([{
         "$type": "com.atproto.repo.applyWrites#update", "collection": body["collection"],
-        "rkey": body["rkey"], "record": body["record"],
+        "rkey": body["rkey"], "value": body["record"],
     }])
     result = await env.account(auth["do_id"]).put_record(
         collection=body["collection"], rkey=body["rkey"], record=body["record"],

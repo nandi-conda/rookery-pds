@@ -73,14 +73,14 @@ async def test_put_record_creates_then_updates(provisioned):
 
 async def test_apply_writes_creates_and_updates(provisioned):
     created = await provisioned.apply_writes(writes=[
-        {"$type": "com.atproto.repo.applyWrites#create", "collection": POST, "record": {"text": "post 1"}},
-        {"$type": "com.atproto.repo.applyWrites#create", "collection": POST, "record": {"text": "post 2"}},
+        {"$type": "com.atproto.repo.applyWrites#create", "collection": POST, "value": {"text": "post 1"}},
+        {"$type": "com.atproto.repo.applyWrites#create", "collection": POST, "value": {"text": "post 2"}},
     ])
     assert created["commit"]["cid"] and len(created["results"]) == 2
 
     await provisioned.create_record(collection=POST, rkey="update-rkey", record={"text": "before"})
     updated = await provisioned.apply_writes(writes=[{
-        "$type": "com.atproto.repo.applyWrites#update", "collection": POST, "rkey": "update-rkey", "record": {"text": "after"},
+        "$type": "com.atproto.repo.applyWrites#update", "collection": POST, "rkey": "update-rkey", "value": {"text": "after"},
     }])
     (result,) = updated["results"]
     assert result["$type"] == "com.atproto.repo.applyWrites#updateResult"

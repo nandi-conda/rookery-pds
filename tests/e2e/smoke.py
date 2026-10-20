@@ -87,7 +87,7 @@ def main():
 
     response = xrpc_post("com.atproto.repo.applyWrites", {"repo": did, "writes": [
         {"$type": "com.atproto.repo.applyWrites#create", "collection": "app.bsky.feed.post", "rkey": f"p{i}",
-         "record": {"text": f"post {i}", "createdAt": "2026-10-20T00:00:00Z"}}
+         "value": {"text": f"post {i}", "createdAt": "2026-10-20T00:00:00Z"}}
         for i in range(5)
     ]})
     check(response.status_code == 200 and len(response.json()["results"]) == 5, "applyWrites", response.text)

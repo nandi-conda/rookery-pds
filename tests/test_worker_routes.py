@@ -131,7 +131,7 @@ async def test_authenticated_repo_write_routes(client, enroll):
     assert (await rook.post("/xrpc/com.atproto.repo.putRecord", dict(base, record={"text": "updated"}))).status == 200
     applied = await rook.post("/xrpc/com.atproto.repo.applyWrites", {"repo": rook.did, "writes": [{
         "$type": "com.atproto.repo.applyWrites#update", "collection": "app.bsky.feed.post", "rkey": "write-rkey",
-        "record": {"text": "batch-updated"},
+        "value": {"text": "batch-updated"},
     }]})
     assert applied.status == 200
     result = applied.json()["results"][0]
@@ -140,3 +140,36 @@ async def test_authenticated_repo_write_routes(client, enroll):
     assert (await rook.post("/xrpc/com.atproto.repo.deleteRecord", base)).status == 200
     got = await client.get("/xrpc/com.atproto.repo.getRecord", params=base)
     assert got.status == 400 and got.json()["error"] == "RecordNotFound"
+
+
+async def test_apply_writes_create_then_delete_in_one_batch(client, enroll):
+    """The cirrus checker's atomic probe: a create and a delete of the same record."""
+    rook = await enroll()
+    write = {"collection": "app.bsky.feed.post", "rkey": "ephemeral"}
+    applied = await rook.post("/xrpc/com.atproto.repo.applyWrites", {"repo": rook.did, "writes": [
+        dict(write, **{"$type": "com.atproto.repo.applyWrites#create", "value": {"text": "brief"}}),
+        dict(write, **{"$type": "com.atproto.repo.applyWrites#delete"}),
+    ]})
+    assert applied.status == 200, applied.text
+    got = await client.get("/xrpc/com.atproto.repo.getRecord", params=dict(write, repo=rook.did))
+    assert got.json()["error"] == "RecordNotFound"
+
+
+async def test_account_management_reads(client, enroll):
+    rook = await enroll()
+    await rook.create("app.bsky.feed.post", {"text": "one"}, "one")
+    status = await rook.get("/xrpc/com.atproto.server.checkAccountStatus")
+    assert status.status == 200, status.text
+    body = status.json()
+    assert body["activated"] is True and body["validDid"] is True
+    assert body["indexedRecords"] == 1 and body["repoBlocks"] > 0 and body["repoRev"]
+
+    creds = (await rook.get("/xrpc/com.atproto.identity.getRecommendedDidCredentials")).json()
+    assert creds["alsoKnownAs"] == [f"at://{rook.handle}"]
+    assert creds["services"]["atproto_pds"]["endpoint"] == "https://rookery.test"
+    assert creds["verificationMethods"]["atproto"].startswith("did:key:z")
+    assert len(creds["rotationKeys"]) == 1
+
+    assert (await rook.get("/xrpc/com.atproto.server.listAppPasswords")).json() == {"passwords": []}
+    assert (await rook.get("/xrpc/com.atproto.server.getAccountInviteCodes")).json() == {"codes": []}
+    assert (await client.get("/xrpc/com.atproto.server.checkAccountStatus")).status == 401
