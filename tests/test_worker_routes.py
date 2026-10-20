@@ -18,7 +18,6 @@ async def test_options_preflight(client):
     response = await client.request("OPTIONS", "/xrpc/com.atproto.repo.getRecord", headers={
         "origin": "https://example.com",
         "access-control-request-method": "GET",
-        "access-control-request-headers": "Authorization, DPoP",
     })
     assert response.status == 204
     assert response.headers["access-control-allow-origin"] == "*"
@@ -29,6 +28,17 @@ async def test_options_preflight(client):
     for name in ("Atproto-Proxy", "Atproto-Accept-Labelers"):
         assert name in response.headers["access-control-allow-headers"]
     assert response.headers["access-control-max-age"] == "86400"
+
+
+async def test_options_preflight_reflects_client_headers(client):
+    # bsky.app sends X-Atproto-Session-Id on every PDS call.
+    response = await client.request("OPTIONS", "/xrpc/app.bsky.actor.getProfile", headers={
+        "origin": "https://bsky.app",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "atproto-accept-labelers,authorization,x-atproto-session-id",
+    })
+    assert response.status == 204
+    assert "x-atproto-session-id" in response.headers["access-control-allow-headers"]
 
 
 async def test_cors_on_post_errors(client):

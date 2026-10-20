@@ -86,6 +86,9 @@ MAX_BLOB_BYTES = 60 * 1024 * 1024
 OAUTH_DISPLAY_FIELDS = ("client_name", "client_uri", "logo_uri", "policy_uri", "tos_uri")
 CORS_EXPOSE = "Content-Type,DPoP-Nonce,WWW-Authenticate,Idempotency-Replayed,Atproto-Repo-Rev,Atproto-Content-Labelers"
 CORS_ALLOW_METHODS = "GET,HEAD,POST,PUT,DELETE,OPTIONS"
+# Preflights reflect the requested headers, as the reference PDS does: clients
+# like bsky.app add their own (X-Atproto-Session-Id). This list answers
+# preflights that name none.
 CORS_ALLOW_HEADERS = (
     "Content-Type,Authorization,DPoP,Idempotency-Key,Accept-Language,"
     "Atproto-Proxy,Atproto-Accept-Labelers,Atproto-Space-Audience"
@@ -346,7 +349,7 @@ async def handle(request, env) -> Response:
         response = Response(204, b"", [
             ("Access-Control-Max-Age", "86400"),
             ("Access-Control-Allow-Methods", CORS_ALLOW_METHODS),
-            ("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS),
+            ("Access-Control-Allow-Headers", request.header("access-control-request-headers") or CORS_ALLOW_HEADERS),
             ("Vary", "Access-Control-Request-Headers"),
         ])
     else:
