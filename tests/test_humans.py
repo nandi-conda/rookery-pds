@@ -117,3 +117,7 @@ async def test_preferences_and_appview_proxy(client, env):
     assert payload["lxm"] == "app.bsky.feed.getTimeline"
     unknown = await client.get("/xrpc/com.example.nothing", headers=auth)
     assert unknown.status == 501
+    anonymous = await client.get("/xrpc/app.bsky.feed.getTimeline?limit=5")
+    assert anonymous.status == 401 and anonymous.json()["error"] == "AuthRequired"
+    proxied = await client.get("/xrpc/com.example.thing", headers={"atproto-proxy": "did:web:evil.example#svc"})
+    assert proxied.status == 401

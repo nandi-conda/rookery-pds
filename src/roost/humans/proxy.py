@@ -72,6 +72,8 @@ async def forward(request, env):
     nsid = request.params["nsid"]
     if not is_valid_nsid(nsid):
         raise XrpcError("InvalidRequest", "Invalid method")
+    # Authenticate before resolving anything: an open proxy would let anyone make this Worker fetch arbitrary hosts.
+    auth = await authenticate(request, env, request.method)
     target = await proxy_target(request, nsid)
     if target is None:
         raise XrpcError("MethodNotImplemented", f"Method not implemented: {nsid}", 501)
@@ -82,14 +84,12 @@ async def forward(request, env):
             raise XrpcError("UpstreamFailure", f"Could not resolve proxy service {endpoint}", 502)
         endpoint = resolved
     headers = {name: request.header(name) for name in FORWARD_REQUEST_HEADERS if request.header(name)}
-    if request.header("authorization"):
-        auth = await authenticate(request, env, request.method)
-        if auth["kind"] == "oauth":
-            denied = enforce_rpc_scope(auth["scope"], nsid, aud)
-            if denied:
-                raise XrpcError("InsufficientScope", f"Scope does not permit {denied}", 403)
-        token = await env.account(auth["do_id"]).sign_service_auth(aud=aud, lxm=nsid, exp=int(time.time()) + 60)
-        headers["authorization"] = f"Bearer {token['token']}"
+    if auth["kind"] == "oauth":
+        denied = enforce_rpc_scope(auth["scope"], nsid, aud)
+        if denied:
+            raise XrpcError("InsufficientScope", f"Scope does not permit {denied}", 403)
+    token = await env.account(auth["do_id"]).sign_service_auth(aud=aud, lxm=nsid, exp=int(time.time()) + 60)
+    headers["authorization"] = f"Bearer {token['token']}"
     body = await request.bytes() if request.method == "POST" else None
     try:
         upstream = await env.http.fetch(
