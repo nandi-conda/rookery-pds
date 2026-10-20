@@ -30,8 +30,11 @@ from .auth import (
     validate_access_token,
     validate_dpop_proof,
 )
+from .errors import XrpcError
 from .encoding import b64url_decode, b64url_encode, sha256_b64url, sha256_hex
 from .handle_dns import HandleDnsError, publish_handle_dns
+from .humans import store as human_store
+from .humans.pages import render_consent_page
 from .handle_policy import is_reserved_or_blocked
 from .jwt import JwtFormatError, parse_jwt, rs256_verify
 from .keys import Secp256k1Keypair
@@ -166,8 +169,11 @@ def with_query(url: str, params: dict) -> str:
 # Auth
 
 async def resolve_dpop_auth(request, env, method: str) -> dict:
-    """{did, do_id, kind: "wm" | "oauth", scope?} for the request's credentials."""
-    access_token = extract_bearer_token(request.header("authorization"))
+    """{did, do_id, kind: "wm" | "oauth" | "session", scope?} for the request's credentials."""
+    authorization = request.header("authorization") or ""
+    if authorization[:7].lower() == "bearer ":
+        return await _resolve_password_session(env, authorization[7:].strip())
+    access_token = extract_bearer_token(authorization)
     if not access_token:
         raise AuthError("Missing DPoP authorization")
     dpop = request.header("dpop")
@@ -182,6 +188,16 @@ async def resolve_dpop_auth(request, env, method: str) -> dict:
     await directory.init_directory(env.db)
     resolved = await directory.resolve_by_thumbprint(env.db, proof["thumbprint"])
     return dict(resolved, kind="wm", scope=None)
+
+
+async def _resolve_password_session(env, token: str) -> dict:
+    try:
+        session = await human_store.resolve_token(env.db, token, "access")
+    except human_store.SessionError as exc:
+        # Clients refresh on ExpiredToken (400), as the reference PDS answers.
+        expired = "expired" in str(exc)
+        raise AuthFailure(error("ExpiredToken" if expired else "InvalidToken", str(exc), 400 if expired else 401)) from exc
+    return {"did": session["did"], "do_id": session["do_id"], "kind": "session", "scope": None}
 
 
 def auth_failure(exc: Exception, oauth_token_error: bool = True) -> Response:
@@ -324,6 +340,8 @@ async def _dispatch(request, env) -> Response:
     except HandleDnsError as exc:
         log.error("%s", exc)
         return error("HandleDnsFailed", str(exc), 502)
+    except XrpcError as exc:
+        return error(exc.name, exc.message, exc.status)
     except RepoError as exc:
         return error("InvalidRequest", str(exc), 400)
     except Exception:
@@ -481,13 +499,15 @@ async def oauth_par(request, env):
 async def oauth_authorize(request, env):
     now = now_s()
     await store.init_oauth(env.db)
-    issuer = origin(env)
     request_uri = request.query("request_uri")
     par = await store.get_par_request(env.db, request_uri) if request_uri else None
     if not par or par["exp"] <= now or par["client_id"] != request.query("client_id"):
         return error("invalid_request", "Invalid or expired request_uri", 400)
 
     params = json.loads(par["params"])
+    if request.header("authorization") is None and "text/html" in (request.header("accept") or ""):
+        # A browser: humans sign in with their password here (see humans.routes).
+        return html_response(render_consent_page(env, par, params))
     if request.header("authorization") is None:
         login_hint = params.get("login_hint")
         return json_response({
@@ -519,7 +539,14 @@ async def oauth_authorize(request, env):
     if not await store.insert_dpop_jti(env.db, sha256_b64url(f"oauth-consent:{jti}"), now + 600, now):
         return error("AuthFailed", "DPoP proof replayed", 401)
 
-    state = params.get("state")
+    return await finish_consent(env, par, auth["did"], deny)
+
+
+async def finish_consent(env, par: dict, did: str, deny: bool) -> Response:
+    """Redirect back to the client with a code for `did`, or access_denied."""
+    now = now_s()
+    issuer = origin(env)
+    state = json.loads(par["params"]).get("state")
     extra = {"state": state} if isinstance(state, str) else {}
     if deny:
         await store.consume_par_request(env.db, par["request_uri"])
@@ -533,7 +560,7 @@ async def oauth_authorize(request, env):
         "redirect_uri": par["redirect_uri"],
         "code_challenge": par["code_challenge"],
         "scope": par["scope"],
-        "did": auth["did"],
+        "did": did,
         "dpop_jkt": par["dpop_jkt"],
         "exp": now + 60,
     }, now)
@@ -858,6 +885,40 @@ async def check_handle_name(env, name: str, did: str | None = None) -> str:
     return handle
 
 
+async def provision_account(env, handle: str, invite: str | None, jwk_thumbprint: str | None) -> str:
+    """Create a did:plc, its Account DO and directory row for a checked handle; returns the DID.
+    Spends `invite` when given. Raises AuthFailure for a spent invite or a taken handle."""
+    signing = Secp256k1Keypair.create()
+    rotation = Secp256k1Keypair.create()
+    if invite and not await directory.spend_invite_pending(env.db, invite):
+        raise AuthFailure(error("InviteInvalid", "Invite is invalid or already spent.", 403))
+    try:
+        did = await identity.create_plc_did(
+            env.http, handle, env.ROOKERY_HOSTNAME, signing, rotation, env.ROOKERY_PLC_URL,
+            env.ROOKERY_AGENTBUS_ENDPOINT,
+        )
+        do_id = env.new_account_id()
+        await env.account(do_id).init_account(
+            did=did, handle=handle,
+            signing_key_hex=signing.export_hex(), signing_key_pub=signing.did().split(":")[-1],
+            rotation_key_hex=rotation.export_hex(), rotation_key_pub=rotation.did().split(":")[-1],
+            jwk_thumbprint=jwk_thumbprint,
+        )
+        await directory.insert_account(env.db, did, handle, do_id, jwk_thumbprint)
+    except Exception as exc:
+        if invite:
+            await directory.unspend_invite(env.db, invite, "pending")
+        if "UNIQUE constraint failed" in str(exc):
+            raise AuthFailure(error("HandleTaken", "Handle is already taken. Choose another name.", 409)) from exc
+        raise
+
+    await publish_handle_dns(env, handle, did)
+    if invite and not await directory.finalize_invite_spend(env.db, invite, did):
+        raise RuntimeError("Invite spend finalization failed")
+    sync_knot_member(env, did)
+    return did
+
+
 @router.post("/api/signup")
 async def signup(request, env):
     body = await read_json(request)
@@ -896,35 +957,7 @@ async def signup(request, env):
             return error("InviteInvalid", "Invite is invalid or already spent.", 403)
 
     handle = await check_handle_name(env, submitted.lower())
-    signing = Secp256k1Keypair.create()
-    rotation = Secp256k1Keypair.create()
-    if invite and not await directory.spend_invite_pending(env.db, invite):
-        return error("InviteInvalid", "Invite is invalid or already spent.", 403)
-
-    try:
-        did = await identity.create_plc_did(
-            env.http, handle, env.ROOKERY_HOSTNAME, signing, rotation, env.ROOKERY_PLC_URL,
-            env.ROOKERY_AGENTBUS_ENDPOINT,
-        )
-        do_id = env.new_account_id()
-        await env.account(do_id).init_account(
-            did=did, handle=handle,
-            signing_key_hex=signing.export_hex(), signing_key_pub=signing.did().split(":")[-1],
-            rotation_key_hex=rotation.export_hex(), rotation_key_pub=rotation.did().split(":")[-1],
-            jwk_thumbprint=proof["thumbprint"],
-        )
-        await directory.insert_account(env.db, did, handle, do_id, proof["thumbprint"])
-    except Exception as exc:
-        if invite:
-            await directory.unspend_invite(env.db, invite, "pending")
-        if "UNIQUE constraint failed" in str(exc):
-            return error("HandleTaken", "Handle is already taken. Choose another name.", 409)
-        raise
-
-    await publish_handle_dns(env, handle, did)
-    if invite and not await directory.finalize_invite_spend(env.db, invite, did):
-        raise RuntimeError("Invite spend finalization failed")
-    sync_knot_member(env, did)
+    did = await provision_account(env, handle, invite, proof["thumbprint"])
     return json_response({"did": did, "handle": handle, "access_token": body["access_token"], "token_type": "DPoP"})
 
 
@@ -1426,3 +1459,9 @@ async def get_repo_status(request, env):
 @router.get("/xrpc/com.atproto.sync.subscribeRepos")
 async def subscribe_repos(request, env):
     return await env.subscribe_repos(request)
+
+
+# Route modules that register on `router`.
+from .spaces import routes as _space_routes  # noqa: E402,F401
+from .humans import routes as _human_routes  # noqa: E402,F401
+from .humans import proxy as _proxy_routes  # noqa: E402,F401  (last: catches unserved /xrpc methods)

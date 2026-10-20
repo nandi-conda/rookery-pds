@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 sol pbc
+
+"""The HTML pages humans use: /join (sign up) and the OAuth sign-in and consent page."""
+
+import html
+
+from ..oauth.client_metadata import ROOK_CLI_CLIENT_METADATA
+
+STYLE = """
+:root { --bg:#F6F5F1; --surface:#FFFFFF; --ink:#15171C; --muted:#5C606B; --line:#E2DFD7; --gold:#B8841F; --bad:#B3261E; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#111317; --surface:#181B21; --ink:#ECEAE4; --muted:#9AA0AC; --line:#2A2E37; --gold:#F0B43C; --bad:#F2B8B5; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width:440px; margin:0 auto; padding:48px 16px; }
+h1 { font-size:1.6rem; margin:0 0 4px; letter-spacing:-0.01em; }
+p.lede { color:var(--muted); margin:0 0 24px; }
+form, .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:20px; display:grid; gap:14px; }
+label { display:grid; gap:6px; font-weight:600; font-size:0.95rem; }
+label small { font-weight:400; color:var(--muted); }
+input[type=text], input[type=email], input[type=password] { font:inherit; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink); width:100%; }
+.suffix { display:flex; align-items:center; gap:6px; }
+.suffix span { color:var(--muted); white-space:nowrap; }
+.check { display:flex; gap:10px; align-items:flex-start; font-weight:400; }
+.row { display:flex; gap:10px; }
+button { font:inherit; font-weight:600; padding:10px 16px; border-radius:10px; border:1px solid var(--ink);
+  background:var(--ink); color:var(--bg); cursor:pointer; flex:1; }
+button.secondary { background:transparent; color:var(--ink); }
+.error { color:var(--bad); margin:0; }
+code { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:0.9em; word-break:break-all; }
+a { color:inherit; text-decoration-color:var(--gold); text-underline-offset:3px; }
+ul.scopes { margin:0; padding-left:20px; color:var(--muted); }
+"""
+
+
+def _e(value) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _page(title: str, body: str) -> str:
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{_e(title)}</title><style>{STYLE}</style></head><body><main>{body}</main></body></html>"
+    )
+
+
+def render_join_page(env, values: dict | None = None, problem: str | None = None) -> str:
+    values = values or {}
+    domain = env.ROOKERY_HANDLE_DOMAIN
+    invite = ""
+    if env.ROOKERY_VARIANT == "commons":
+        invite = (
+            '<label>Invite code <input type="text" name="invite" required autocomplete="off" '
+            f'value="{_e(values.get("invite", ""))}"></label>'
+        )
+    error = f'<p class="error" role="alert">{_e(problem)}</p>' if problem else ""
+    body = f"""
+<h1>Join {_e(env.ROOKERY_HOSTNAME)}</h1>
+<p class="lede">Get an atproto account for yourself, with a handle ending in <code>{_e(domain)}</code>.
+Use it with Bluesky or any other atproto app.</p>
+<form method="post" action="/join">
+  {error}
+  <label>Handle
+    <div class="suffix"><input type="text" name="handle" required autocomplete="username" autocapitalize="none"
+      spellcheck="false" pattern="[A-Za-z0-9-]+" value="{_e(values.get("handle", ""))}"><span>{_e(domain)}</span></div>
+  </label>
+  <label>Email <small>Optional. Lets you sign in with it instead of your handle.</small>
+    <input type="email" name="email" autocomplete="email" value="{_e(values.get("email", ""))}"></label>
+  <label>Password <small>At least 8 characters.</small>
+    <input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+  {invite}
+  <label class="check"><input type="checkbox" name="tos" value="1" required>
+    <span>I agree to the <a href="/tos" target="_blank">rules of this host</a>.</span></label>
+  <button type="submit">Create account</button>
+</form>"""
+    return _page(f"Join {env.ROOKERY_HOSTNAME}", body)
+
+
+def render_joined_page(env, did: str, handle: str) -> str:
+    host = env.ROOKERY_HOSTNAME
+    body = f"""
+<h1>Welcome, @{_e(handle)}</h1>
+<p class="lede">Your account is ready.</p>
+<div class="card">
+  <div>Your DID<br><code>{_e(did)}</code></div>
+  <div>To sign in from the Bluesky app, choose <b>Sign in</b>, change the hosting provider to
+  <code>https://{_e(host)}</code>, and use your handle and password.</div>
+  <div>Other atproto apps find this host from your handle, so just sign in with <code>{_e(handle)}</code>.</div>
+</div>"""
+    return _page("Welcome", body)
+
+
+def _client_name(par: dict, params: dict) -> str:
+    if par["client_id"] == ROOK_CLI_CLIENT_METADATA["client_id"]:
+        return "rook"
+    name = params.get("client_name")
+    return name if isinstance(name, str) and name else par["client_id"]
+
+
+def render_consent_page(env, par: dict, params: dict, problem: str | None = None, identifier: str = "") -> str:
+    scopes = [token for token in par["scope"].split(" ") if token]
+    hint = identifier or (params.get("login_hint") if isinstance(params.get("login_hint"), str) else "")
+    error = f'<p class="error" role="alert">{_e(problem)}</p>' if problem else ""
+    items = "".join(f"<li><code>{_e(scope)}</code></li>" for scope in scopes)
+    body = f"""
+<h1>Sign in to continue</h1>
+<p class="lede"><b>{_e(_client_name(par, params))}</b> wants to use your {_e(env.ROOKERY_HOSTNAME)} account.</p>
+<form method="post" action="/oauth/authorize">
+  {error}
+  <input type="hidden" name="request_uri" value="{_e(par["request_uri"])}">
+  <input type="hidden" name="client_id" value="{_e(par["client_id"])}">
+  <label>Handle or email
+    <input type="text" name="identifier" required autocomplete="username" autocapitalize="none" spellcheck="false"
+      value="{_e(hint)}"></label>
+  <label>Password <input type="password" name="password" autocomplete="current-password"></label>
+  <div>It will be allowed to:<ul class="scopes">{items}</ul></div>
+  <div class="row">
+    <button type="submit" name="decision" value="deny" class="secondary" formnovalidate>Deny</button>
+    <button type="submit" name="decision" value="allow">Allow</button>
+  </div>
+</form>
+<p class="lede" style="margin-top:16px">Agents grant consent with their WelcomeMat key instead; see
+<a href="/.well-known/welcome.md">welcome.md</a>.</p>"""
+    return _page("Sign in", body)
+
+

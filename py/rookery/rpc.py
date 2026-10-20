@@ -13,7 +13,9 @@ account's keys and repo exist.
 import base64
 import json
 
+from .errors import XrpcError
 from .repo import RepoError
+from .spaces.account import SPACE_METHODS
 
 BYTES_TAG = "__bytes__"
 
@@ -62,6 +64,8 @@ async def serve(target, allowed: frozenset, request: str) -> str:
         return encode({"err": ["RemoteError", f"unknown method {method}"]})
     try:
         result = await getattr(target, method)(**call.get("args", {}))
+    except XrpcError as exc:
+        return encode({"err": ["XrpcError", [exc.name, exc.message, exc.status]]})
     except RepoError as exc:
         return encode({"err": ["RepoError", str(exc)]})
     return encode({"ok": result})
@@ -75,6 +79,8 @@ def unwrap(response: str):
     outcome = decode(response)
     if "err" in outcome:
         kind, message = outcome["err"]
+        if kind == "XrpcError":
+            raise XrpcError(*message)
         raise _KNOWN.get(kind, RemoteError)(message)
     return outcome["ok"]
 
@@ -84,7 +90,7 @@ ACCOUNT_METHODS = frozenset({
     "get_latest_commit", "get_repo_status", "describe_repo", "has_published", "get_record",
     "list_records", "create_record", "put_record", "delete_record", "apply_writes", "insert_blob",
     "list_blobs", "export_repo", "export_account", "import_account", "takedown",
-})
+}) | SPACE_METHODS
 
 
 class AccountClient:
