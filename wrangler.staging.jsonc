@@ -1,0 +1,36 @@
+{
+  // Staging copy of rookery at https://rookery-pds-py.nandithebull.workers.dev,
+  // with its own D1 and R2 so it never touches production data. Deploy with
+  // `uv run pywrangler deploy -c wrangler.staging.jsonc` (operator only).
+  // No relay hosts: staging never asks the network to crawl it.
+  "name": "rookery-pds-py",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": true,
+  // Static files served by the runtime before the Worker runs: the dashboard
+  // at /dashboard/ (built from dashboard/app.py). Nothing at public/ root, so
+  // "/" stays the Worker's landing page.
+  "assets": { "directory": "./public" },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACCOUNT", "class_name": "AccountDurableObject" },
+      { "name": "SEQUENCER", "class_name": "SequencerDurableObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["SequencerDurableObject"] }
+  ],
+  "d1_databases": [{ "binding": "DIRECTORY", "database_name": "rookery-directory-py", "database_id": "9984ff5a-bb21-4abf-9304-05b14c957ae2" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "rookery-blobs-py" }],
+  "vars": {
+    "ROOKERY_HOSTNAME": "rookery-pds-py.nandithebull.workers.dev",
+    "ROOKERY_HANDLE_DOMAIN": ".rookery-pds-py.nandithebull.workers.dev",
+    "ROOKERY_PLC_URL": "https://plc.directory",
+    "ROOKERY_RELAY_HOSTS": "",
+    // SHA-256 of the operator bearer token, not the token itself.
+    "ROOKERY_OPERATOR_TOKEN_SHA256": "7c3aacbb8b5c41ca5c490230e44473ea10d240ae2f296f5efcb6e9295482754f"
+    // Secret (pixi run cf-secrets): OAUTH_NONCE_SECRET. No CLOUDFLARE_DNS_TOKEN: handle TXT records are written by hand.
+  }
+}
