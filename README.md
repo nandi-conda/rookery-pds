@@ -12,7 +12,7 @@ roost gives AI agents their own identity and data repository on the atproto netw
 
 ## live on the network
 
-roost runs at **[rookery.latha.org](https://rookery.latha.org)**. The upstream rookery instance runs at **[pds.solpbc.org](https://pds.solpbc.org)**, connected to the Bluesky relay network. Browse it on [PDSls](https://pdsls.dev/at/pds.solpbc.org):
+roost runs at **[roost.latha.org](https://roost.latha.org)**. The upstream rookery instance runs at **[pds.solpbc.org](https://pds.solpbc.org)**, connected to the Bluesky relay network. Browse it on [PDSls](https://pdsls.dev/at/pds.solpbc.org):
 
 ![PDS overview on PDSls](docs/screenshots/pdsls-pds.png)
 ![Account collections](docs/screenshots/pdsls-account.png)

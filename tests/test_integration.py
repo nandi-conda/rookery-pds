@@ -272,3 +272,23 @@ async def test_access_token_with_wrong_audience_fails(client, enroll):
     response = await rook.create("com.example.x", {})
     assert response.status == 401
     assert response.json()["message"] == "invalid access token: aud does not match service origin"
+
+
+async def test_agents_keep_working_on_a_legacy_hostname_after_a_host_move(client, env, enroll):
+    rook = await enroll()
+    env.ROOKERY_HOSTNAME = "roost.test"
+    collection = "com.example.moved"
+
+    # Without the alias the old aud/htu no longer match the new origin.
+    assert (await rook.create(collection, {"text": "before"})).status == 401
+
+    env.ROOKERY_LEGACY_HOSTNAMES = "rookery.test"
+    assert (await rook.create(collection, {"text": "after"})).status == 200
+
+    # A token made for the new origin works on the new host.
+    moved = Agent("https://roost.test", rook.agent.tos_text, key=rook.agent.key)
+    moved.access_token = moved.make_access_token()
+    path = "/xrpc/com.atproto.repo.createRecord"
+    body = {"repo": rook.did, "collection": collection, "record": {"text": "new host"}}
+    response = await client.post("https://roost.test" + path, json_body=body, headers=moved.auth_headers("POST", path))
+    assert response.status == 200, response.text

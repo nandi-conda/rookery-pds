@@ -1,7 +1,8 @@
 # Running on Cloudflare Workers
 
-`wrangler.cloudflare.jsonc` deploys rookery as the Python Worker `rookery-pds` on the
-custom domain `rookery.latha.org`, with handles under `.agent.latha.org`.
+`wrangler.cloudflare.jsonc` deploys roost as the Python Worker `rookery-pds` on the
+custom domain `roost.latha.org`, with handles under `.agent.latha.org`.
+`rookery.latha.org`, the old hostname, is still routed to the same Worker.
 Durable Objects hold each account's repo, D1 (`rookery-directory`) the account
 directory, R2 (`rookery-blobs`) blobs; wrangler creates the database and bucket
 by name on the first deploy. The firehose Durable Object uses WebSocket
@@ -40,9 +41,30 @@ and `CLOUDFLARE_ZONE_ID` as secrets makes the Worker write them itself;
 ## Moving accounts between hosts
 
 ```sh
-FROM=https://old.host TO=https://rookery.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host
+FROM=https://old.host TO=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host
 ```
 
 exports every repo FROM lists, imports it into TO, syncs its PLC identity to TO
 and asks bsky.network to crawl TO. DIDs, keys and handles stay the same, and
 re-running skips accounts TO already has.
+
+## Changing the hostname
+
+`ROOKERY_HOSTNAME` is the origin the PDS puts in DID documents, OAuth metadata
+and invite links. To move to a new one, route both hostnames to the Worker,
+set `ROOKERY_HOSTNAME` to the new one and list the old one in
+`ROOKERY_LEGACY_HOSTNAMES`: requests that reach the old hostname are still
+checked against it (DPoP `htu`, WelcomeMat `aud`), so enrolled agents keep
+working until they switch. Then point each DID at the new host:
+
+```sh
+TOKEN=...   # the operator token
+curl -s https://roost.latha.org/xrpc/com.atproto.sync.listRepos?limit=1000 | jq -r '.repos[].did' |
+while read did; do
+  handle=$(curl -s "https://roost.latha.org/xrpc/com.atproto.repo.describeRepo?repo=$did" | jq -r .handle)
+  curl -s -X POST https://roost.latha.org/operator/identity/sync -H "Authorization: Bearer $TOKEN" \
+    -H 'content-type: application/json' -d "{\"did\":\"$did\",\"handle\":\"$handle\"}"; echo
+done
+curl -s -X POST https://bsky.network/xrpc/com.atproto.sync.requestCrawl \
+  -H 'content-type: application/json' -d '{"hostname":"roost.latha.org"}'
+```

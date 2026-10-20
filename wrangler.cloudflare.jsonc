@@ -1,6 +1,7 @@
 {
-  // rookery on Cloudflare Workers, at https://rookery.latha.org with handles
-  // under .agent.latha.org. Deploy with `pixi run cf-deploy` (operator only,
+  // roost on Cloudflare Workers, at https://roost.latha.org with handles
+  // under .agent.latha.org. rookery.latha.org, the old hostname, stays routed
+  // here so agents and DID documents that still name it keep working. Deploy with `pixi run cf-deploy` (operator only,
   // see docs/cloudflare.md). wrangler creates the D1 database and R2 bucket by
   // name on the first deploy, so neither needs an id here.
   "name": "rookery-pds",
@@ -12,7 +13,10 @@
   // at /dashboard/ (built from dashboard/app.py). Nothing at public/ root, so
   // "/" stays the Worker's landing page.
   "assets": { "directory": "./public" },
-  "routes": [{ "pattern": "rookery.latha.org", "custom_domain": true }],
+  "routes": [
+    { "pattern": "roost.latha.org", "custom_domain": true },
+    { "pattern": "rookery.latha.org", "custom_domain": true }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "ACCOUNT", "class_name": "AccountDurableObject" },
@@ -26,7 +30,9 @@
   "d1_databases": [{ "binding": "DIRECTORY", "database_name": "rookery-directory", "database_id": "8d675dbb-ba39-4c36-861f-fe0f15b9087b" }],
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "rookery-blobs" }],
   "vars": {
-    "ROOKERY_HOSTNAME": "rookery.latha.org",
+    "ROOKERY_HOSTNAME": "roost.latha.org",
+    // Former hostnames whose DPoP htu / WelcomeMat aud are still accepted.
+    "ROOKERY_LEGACY_HOSTNAMES": "rookery.latha.org",
     "ROOKERY_HANDLE_DOMAIN": ".agent.latha.org",
     "ROOKERY_PLC_URL": "https://plc.directory",
     "ROOKERY_RELAY_HOSTS": "bsky.network",

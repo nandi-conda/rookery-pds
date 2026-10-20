@@ -19,7 +19,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from . import agentbus, cbor, directory, identity
 from .access import AccessJwtError, verify_access_jwt
@@ -110,9 +110,18 @@ def origin(env) -> str:
     return f"https://{env.ROOKERY_HOSTNAME}"
 
 
+def request_host(request, env) -> str:
+    """The host to check DPoP htu and WelcomeMat aud against: a former hostname in
+    ROOKERY_LEGACY_HOSTNAMES when the request reached one, else ROOKERY_HOSTNAME.
+    This keeps agents enrolled before a host move working on their old origin."""
+    legacy = {host.strip().lower() for host in (env.ROOKERY_LEGACY_HOSTNAMES or "").split(",") if host.strip()}
+    host = (urlsplit(request.url).hostname or "").lower()
+    return host if host in legacy else env.ROOKERY_HOSTNAME
+
+
 def public_request_url(request, env) -> str:
-    """The public origin + path for DPoP htu checks, whatever host the request reached."""
-    return f"https://{env.ROOKERY_HOSTNAME}{request.path}{request.search}"
+    """The public origin + path for DPoP htu checks."""
+    return f"https://{request_host(request, env)}{request.path}{request.search}"
 
 
 def invite_url(env, token: str) -> str:
@@ -184,7 +193,9 @@ async def resolve_dpop_auth(request, env, method: str, sessions: bool = True) ->
         resolved = await resolve_oauth_access_token(access_token, dpop, method, url, env, now_s())
         return dict(resolved, kind="oauth")
     proof = validate_dpop_proof(dpop, method, url, access_token)
-    validate_access_token(access_token, proof["key"], origin(env), proof["thumbprint"], tos_text(env.ROOKERY_VARIANT))
+    validate_access_token(
+        access_token, proof["key"], f"https://{request_host(request, env)}", proof["thumbprint"], tos_text(env.ROOKERY_VARIANT),
+    )
     await directory.init_directory(env.db)
     resolved = await directory.resolve_by_thumbprint(env.db, proof["thumbprint"])
     return dict(resolved, kind="wm", scope=None)
@@ -944,7 +955,7 @@ async def signup(request, env):
     if not rs256_verify(proof["key"], body["tos_signature"], terms):
         return error("InvalidSignature", "Invalid ToS signature", 400)
     try:
-        validate_access_token(body["access_token"], proof["key"], origin(env), proof["thumbprint"], terms)
+        validate_access_token(body["access_token"], proof["key"], f"https://{request_host(request, env)}", proof["thumbprint"], terms)
     except AuthError as exc:
         return error("InvalidToken", str(exc), 400)
 
