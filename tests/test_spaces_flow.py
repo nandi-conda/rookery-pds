@@ -198,3 +198,15 @@ async def test_service_describe_advertises_spaces(client):
             "com.atproto.server.describeServer", "community.lexicon.service.describe"} <= methods
     assert all(entry["$type"] == "community.lexicon.service.describe#nsid" for entry in body["methods"])
     assert not any("(" in value for value in methods)
+
+
+async def test_delegation_for_a_missing_own_space_says_so(client):
+    """Colibri creates its preferences space when getDelegationToken answers SpaceNotFound."""
+    dana = await human(client, "dana")
+    space = f"at://{dana['did']}/space/{FORUM}/self"
+    missing = await call(client, "GET", f"{X}getDelegationToken?space={space}", dana, expect=400)
+    assert missing["error"] == "SpaceNotFound"
+    member_list = {"$type": "com.atproto.simplespace.defs#memberListPolicy"}
+    await call(client, "POST", S + "createSpace", dana, spaceType=FORUM, skey="self", readPolicy=member_list,
+               writePolicy=member_list, appAccess={"$type": "com.atproto.simplespace.defs#open"})
+    assert (await call(client, "GET", f"{X}getDelegationToken?space={space}", dana))["token"]

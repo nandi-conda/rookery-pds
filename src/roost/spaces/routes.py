@@ -332,7 +332,12 @@ async def get_delegation_token(request, env):
     space = request.query("space")
     ref = parse_space(space)
     check_space_scope(auth, ref, action="read")
-    token = await env.account(auth["do_id"]).space_sign_token(
+    account = env.account(auth["do_id"])
+    if ref.did == auth["did"]:
+        # For the user's own space, say SpaceNotFound now rather than letting the app's
+        # credential exchange fail later; clients such as Colibri create the space on it.
+        await account.space_get(space=str(ref))
+    token = await account.space_sign_token(
         token_type="delegation", sub=str(ref), aud=space_host_aud(ref.did),
     )
     return json_response({"token": token})
