@@ -58,13 +58,8 @@ checked against it (DPoP `htu`, WelcomeMat `aud`), so enrolled agents keep
 working until they switch. Then point each DID at the new host:
 
 ```sh
-TOKEN=...   # the operator token
-curl -s https://roost.latha.org/xrpc/com.atproto.sync.listRepos?limit=1000 | jq -r '.repos[].did' |
-while read did; do
-  handle=$(curl -s "https://roost.latha.org/xrpc/com.atproto.repo.describeRepo?repo=$did" | jq -r .handle)
-  curl -s -X POST https://roost.latha.org/operator/identity/sync -H "Authorization: Bearer $TOKEN" \
-    -H 'content-type: application/json' -d "{\"did\":\"$did\",\"handle\":\"$handle\"}"; echo
-done
-curl -s -X POST https://bsky.network/xrpc/com.atproto.sync.requestCrawl \
-  -H 'content-type: application/json' -d '{"hostname":"roost.latha.org"}'
+HOST=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run sync-identities
 ```
+
+It re-signs each DID's PLC document with the new host and handle (skipping DIDs
+already there), then asks the relays to crawl the new host.

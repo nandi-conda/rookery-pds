@@ -26,3 +26,5 @@ cf-drop-dns-token = { cmd = "uv run pywrangler secret delete CLOUDFLARE_DNS_TOKE
 cf-logs = { cmd = "uv run pywrangler tail -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # FROM=... TO=... ROOKERY_OPERATOR_TOKEN=... pixi run migrate-host [did ...]
 migrate-host = { cmd = "uv run python scripts/migrate_host.py", depends-on = ["install"] }
+# HOST=https://roost.latha.org ROOKERY_OPERATOR_TOKEN=... pixi run sync-identities [did ...]
+sync-identities = { cmd = "uv run python scripts/sync_identities.py", depends-on = ["install"] }
