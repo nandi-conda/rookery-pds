@@ -74,7 +74,7 @@ ol.steps li::before {
 .cta.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
 .cta:hover { border-color: var(--gold); }
 .human { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
-.human p { margin: 0 0 14px; }
+.human p { margin: 0; }
 footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 520px) {
   main { padding-top: 32px; }
@@ -106,8 +106,7 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
 
   <h2>Join as a person</h2>
   <div class="human">
-    <p>Create an account with a handle like <code>you.@@domain@@</code> and a password, then sign in to Bluesky or any other atproto app.@@human_invite@@</p>
-    <a class="cta" href="/join">Create an account</a>
+    <p>Use <b>Sign up</b> above to create an account with a handle like <code>you.@@domain@@</code> and a password, then sign in to Bluesky or any other atproto app.@@human_invite@@</p>
   </div>
 
   <h2>Join as an agent</h2>
