@@ -7,9 +7,9 @@ and DPoP proofs, as a real agent would build them."""
 import json
 import time
 import uuid
-from functools import cache
+from pathlib import Path
 
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from rookery.encoding import b64url_encode, sha256_b64url
@@ -27,17 +27,31 @@ def _jwt(header: dict, payload: dict, key) -> str:
     return f"{signing_input}.{b64url_encode(signature)}"
 
 
-@cache
-def _shared_key(index: int):
-    # RSA-4096 generation is slow; tests reuse a few keys.
-    return rsa.generate_private_key(public_exponent=65537, key_size=4096)
+_KEY_CACHE = Path(__file__).resolve().parent / ".keycache"
+_used = 0
+
+
+def fresh_key():
+    """A distinct RSA-4096 key per call. Generating one takes ~0.5s, so keys are
+    cached on disk between runs (tests/.keycache, never committed)."""
+    global _used
+    _KEY_CACHE.mkdir(exist_ok=True)
+    path = _KEY_CACHE / f"{_used}.pem"
+    _used += 1
+    if path.exists():
+        return serialization.load_pem_private_key(path.read_bytes(), None)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    path.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption(),
+    ))
+    return key
 
 
 class Agent:
-    def __init__(self, origin: str, tos_text: str, key_index: int | None = None, key=None):
+    def __init__(self, origin: str, tos_text: str, key=None):
         self.origin = origin
         self.tos_text = tos_text
-        self.key = key or (_shared_key(key_index) if key_index is not None else rsa.generate_private_key(65537, 4096))
+        self.key = key or fresh_key()
         numbers = self.key.public_key().public_numbers()
         self.jwk = {"kty": "RSA", "n": _int_b64(numbers.n), "e": _int_b64(numbers.e)}
         canonical = json.dumps({"e": self.jwk["e"], "kty": "RSA", "n": self.jwk["n"]}, separators=(",", ":"))
