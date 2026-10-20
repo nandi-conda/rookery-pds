@@ -13,11 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agent import Agent  # noqa: E402
 from fakes import Client, Env  # noqa: E402
-from rookery import app as rookery_app  # noqa: E402
-from rookery.oauth import client_metadata  # noqa: E402
-from rookery import access, directory  # noqa: E402
-from rookery.humans import store as human_store  # noqa: E402
-from rookery.spaces import auth as space_auth  # noqa: E402
+from roost import app as roost_app  # noqa: E402
+from roost.oauth import client_metadata  # noqa: E402
+from roost import access, directory  # noqa: E402
+from roost.humans import store as human_store  # noqa: E402
+from roost.spaces import auth as space_auth  # noqa: E402
 
 ORIGIN = "https://rookery.test"
 OPERATOR_TOKEN = "test-operator-token"
@@ -43,7 +43,7 @@ def _reset_module_state():
     directory._idempotency_ensured = False
     human_store._initialized = False
     space_auth._revocations_ensured = False
-    rookery_app._requested_crawl = False
+    roost_app._requested_crawl = False
     yield
 
 

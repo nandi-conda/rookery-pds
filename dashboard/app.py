@@ -1,4 +1,4 @@
-# Rookery dashboard: a read-only view of this PDS over its public XRPC API.
+# Roost dashboard: a read-only view of this PDS over its public XRPC API.
 # Written for ultra (LPython -> wasm); see dashboard/README.md to build.
 
 from lpython import i32, Const
@@ -424,7 +424,7 @@ def view_header() -> None:
     attr("height", "36")
     end()
     el("div")
-    h1("Rookery")
+    h1("Roost")
     el("p")
     cls("sub")
     if j_ok(server) == 1:

@@ -6,9 +6,9 @@
 import pytest
 
 from fakes import Sql
-from rookery import cbor
-from rookery.cbor import CID
-from rookery.storage import RepoStorage
+from roost import cbor
+from roost.cbor import CID
+from roost.storage import RepoStorage
 
 
 @pytest.fixture

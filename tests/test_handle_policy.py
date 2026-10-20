@@ -5,7 +5,7 @@
 
 import pytest
 
-from rookery.handle_policy import (
+from roost.handle_policy import (
     BLOCKLIST, BLOCKLIST_IMPERSONATION, BLOCKLIST_INFRASTRUCTURE, BLOCKLIST_OFFENSIVE, is_reserved_or_blocked,
 )
 

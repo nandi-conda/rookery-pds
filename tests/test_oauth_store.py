@@ -8,8 +8,8 @@ import sqlite3
 import pytest
 
 from conftest import unique
-from rookery.oauth import store
-from rookery.oauth.store import CODE_FIELDS, PAR_FIELDS, SESSION_FIELDS, TOKEN_FIELDS
+from roost.oauth import store
+from roost.oauth.store import CODE_FIELDS, PAR_FIELDS, SESSION_FIELDS, TOKEN_FIELDS
 
 NOW = 1_700_000_000
 

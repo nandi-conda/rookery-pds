@@ -11,9 +11,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from agent import _int_b64, _jwt, fresh_key
-from rookery.auth import AuthError, jwk_thumbprint, validate_access_token, validate_and_import_key, validate_dpop_proof
-from rookery.encoding import b64url_decode, b64url_encode, sha256_b64url
-from rookery.jwt import JwtFormatError, parse_jwt
+from roost.auth import AuthError, jwk_thumbprint, validate_access_token, validate_and_import_key, validate_dpop_proof
+from roost.encoding import b64url_decode, b64url_encode, sha256_b64url
+from roost.jwt import JwtFormatError, parse_jwt
 
 URL = "https://example.com/path"
 

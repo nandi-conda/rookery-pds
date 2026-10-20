@@ -14,7 +14,7 @@ from ..errors import XrpcError
 from .identity import service_endpoint
 from .refs import SpaceRef
 
-log = logging.getLogger("rookery.spaces")
+log = logging.getLogger("roost.spaces")
 
 DEFS = "com.atproto.simplespace.defs"
 CHECK_USER_ACCESS = "com.atproto.simplespace.checkUserAccess"

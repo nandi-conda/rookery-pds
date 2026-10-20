@@ -1,7 +1,7 @@
 [project]
-name = "rookery"
+name = "roost"
 version = "0.3.0"
-description = "Open-source, lexicon-agnostic, multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
+description = "A fork of rookery (sol pbc): an open-source, lexicon-agnostic, multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
 license = "MIT"
 requires-python = ">=3.14"
 # Runtime dependencies are vendored into the Worker by `pywrangler sync`.

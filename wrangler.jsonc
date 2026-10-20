@@ -1,5 +1,5 @@
 {
-  // rookery for local development (`uv run pywrangler dev`) and as a template
+  // roost for local development (`uv run pywrangler dev`) and as a template
   // for your own deployment. The production config for rookery.latha.org is
   // wrangler.cloudflare.jsonc. Set ROOKERY_HOSTNAME and ROOKERY_HANDLE_DOMAIN
   // to your host, and replace the D1 id after `wrangler d1 create rookery-directory`.

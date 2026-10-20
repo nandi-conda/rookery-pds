@@ -1,4 +1,4 @@
-# rookery Makefile
+# roost Makefile
 # Cloudflare Python Worker — multi-tenant PDS for AI agents on AT Protocol
 
 .PHONY: install test dev deploy clean

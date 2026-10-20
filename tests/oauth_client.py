@@ -14,8 +14,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from conftest import ORIGIN, unique
-from rookery.encoding import b64url_encode, sha256_b64url
-from rookery.net import HttpResponse
+from roost.encoding import b64url_encode, sha256_b64url
+from roost.net import HttpResponse
 
 PAR_PATH = "/oauth/par"
 AUTHORIZE_PATH = "/oauth/authorize"

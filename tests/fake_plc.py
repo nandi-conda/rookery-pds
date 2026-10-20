@@ -6,8 +6,8 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from rookery import cbor
-from rookery.cbor import CID
+from roost import cbor
+from roost.cbor import CID
 
 
 class PlcState:

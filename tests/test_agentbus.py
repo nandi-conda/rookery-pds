@@ -9,11 +9,11 @@ import json
 import pytest
 
 from conftest import OPERATOR_TOKEN
-from rookery import cbor
-from rookery.agentbus import (
+from roost import cbor
+from roost.agentbus import (
     InvalidAgentRecordError, validate_agent_record, validate_proc_record, validate_service_record,
 )
-from rookery.identity import build_unsigned_genesis_op
+from roost.identity import build_unsigned_genesis_op
 
 OPERATOR = {"authorization": f"Bearer {OPERATOR_TOKEN}"}
 CREATED = "2026-01-01T00:00:00.000Z"

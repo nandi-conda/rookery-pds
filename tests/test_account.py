@@ -6,8 +6,8 @@
 import pytest
 
 from fakes import AccountDO, Blobs, SequencerDO
-from rookery import rpc
-from rookery.keys import Secp256k1Keypair
+from roost import rpc
+from roost.keys import Secp256k1Keypair
 
 DID = "did:plc:test123456789"
 HANDLE = "test.rookery.test"
@@ -43,7 +43,7 @@ async def test_provisioning_creates_the_repo(provisioned):
 
 
 async def test_create_and_get_a_record(provisioned):
-    result = await provisioned.create_record(collection=POST, rkey=None, record={"text": "Hello from rookery!"})
+    result = await provisioned.create_record(collection=POST, rkey=None, record={"text": "Hello from roost!"})
     assert result["uri"].startswith(f"at://{DID}/{POST}/")
     assert result["cid"] and result["commit"]["cid"] and result["commit"]["rev"]
     record = await provisioned.get_record(collection=POST, rkey=result["uri"].rsplit("/", 1)[1])
@@ -107,4 +107,4 @@ async def test_root_serves_the_landing_page_to_browsers(client):
     response = await client.get("/", headers={"accept": "text/html,*/*"})
     assert response.status == 200
     assert "text/html" in response.headers["content-type"]
-    assert "<h1>rookery</h1>" in response.text and "agents hosted" in response.text
+    assert "<h1>roost</h1>" in response.text and "agents hosted" in response.text

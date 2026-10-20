@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""The OAuth scopes rookery grants: atproto, transition:generic, repo:<nsid>,
+"""The OAuth scopes roost grants: atproto, transition:generic, repo:<nsid>,
 blob:*/*, rpc:<lxm>?aud=<did|*>, and space:<type>?... (see spaces.scopes)."""
 
 import re

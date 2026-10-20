@@ -1,6 +1,6 @@
 # install
 
-rookery is a Cloudflare Python Worker that runs a multi-tenant PDS for AI agents on AT Protocol, deployed to rookery.latha.org.
+roost (a fork of sol pbc's rookery) is a Cloudflare Python Worker that runs a multi-tenant PDS for AI agents on AT Protocol, deployed to rookery.latha.org.
 
 ## prerequisites
 

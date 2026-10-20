@@ -6,12 +6,12 @@ creates a member-list space, a member writes to it, an app exchanges a
 delegation token for a space credential and syncs the member's repo."""
 
 from human import call, human
-from rookery import car, cbor
-from rookery.cbor import CID
-from rookery.encoding import b64_decode
-from rookery.spaces.commit import verify_commit
-from rookery.spaces.httpsig import P256Keypair, create_space_sig_headers
-from rookery.spaces.lthash import LtHash
+from roost import car, cbor
+from roost.cbor import CID
+from roost.encoding import b64_decode
+from roost.spaces.commit import verify_commit
+from roost.spaces.httpsig import P256Keypair, create_space_sig_headers
+from roost.spaces.lthash import LtHash
 
 FORUM = "com.example.forum"
 POST = "com.example.forum.post"

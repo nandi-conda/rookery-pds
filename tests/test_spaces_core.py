@@ -7,14 +7,14 @@ values computed with the reference implementation's own code paths
 
 import pytest
 
-from rookery.keys import Secp256k1Keypair
-from rookery.spaces.blake3 import blake3
-from rookery.spaces.commit import compute_mac, encode_ctx, sign_commit, verify_commit
-from rookery.spaces.httpsig import P256Keypair, SpaceSignatureError, create_space_sig_headers, verify_space_signature
-from rookery.spaces.lthash import LtHash
-from rookery.spaces.refs import InvalidSpaceRef, SpaceRef
-from rookery.spaces.scopes import parse_space_scope, space_scope_denial
-from rookery.web import Headers
+from roost.keys import Secp256k1Keypair
+from roost.spaces.blake3 import blake3
+from roost.spaces.commit import compute_mac, encode_ctx, sign_commit, verify_commit
+from roost.spaces.httpsig import P256Keypair, SpaceSignatureError, create_space_sig_headers, verify_space_signature
+from roost.spaces.lthash import LtHash
+from roost.spaces.refs import InvalidSpaceRef, SpaceRef
+from roost.spaces.scopes import parse_space_scope, space_scope_denial
+from roost.web import Headers
 
 
 def official_input(n):

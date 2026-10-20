@@ -8,9 +8,9 @@ import json
 import pytest
 
 from fakes import Env
-from rookery.handle_dns import HandleDnsError, publish_handle_dns
-from rookery.net import HttpResponse
-from rookery.oauth.nonce import derive_dpop_nonce, is_valid_dpop_nonce
+from roost.handle_dns import HandleDnsError, publish_handle_dns
+from roost.net import HttpResponse
+from roost.oauth.nonce import derive_dpop_nonce, is_valid_dpop_nonce
 
 SECRET = "nonce-secret"
 NOW = 300 * 10_000 + 42

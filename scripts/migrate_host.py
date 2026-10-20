@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""Move accounts from one rookery host to another with their DIDs unchanged:
+"""Move accounts from one roost host to another with their DIDs unchanged:
 export each from FROM, import it into TO, then have TO re-point the DID's PLC
 document (PDS endpoint and handle) at itself and ask the relays to crawl it.
 

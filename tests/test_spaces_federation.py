@@ -10,11 +10,11 @@ import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from human import call, human
-from rookery.encoding import b64url_encode
-from rookery.keys import Secp256k1Keypair
-from rookery.net import HttpResponse
-from rookery.oauth import store as oauth_store
-from rookery.spaces.httpsig import P256Keypair
+from roost.encoding import b64url_encode
+from roost.keys import Secp256k1Keypair
+from roost.net import HttpResponse
+from roost.oauth import store as oauth_store
+from roost.spaces.httpsig import P256Keypair
 from test_spaces_flow import FORUM, POST, S, X, credential_for, setup, signed
 
 PUBLIC = {"$type": "com.atproto.simplespace.defs#publicPolicy"}

@@ -15,8 +15,8 @@ from oauth_client import (
     consent_headers, do_par, exchange_code, new_client_id, oauth_headers, par_form, post_with_nonce, refresh,
     serve_metadata, token_success,
 )
-from rookery.encoding import sha256_b64url
-from rookery.oauth import store
+from roost.encoding import sha256_b64url
+from roost.oauth import store
 
 CREATE = "/xrpc/com.atproto.repo.createRecord"
 
@@ -293,7 +293,7 @@ async def test_scopes_gate_writes_and_blob_uploads(client, issue):
 
 
 async def test_service_auth_requires_a_matching_rpc_scope(client, issue):
-    from rookery.jwt import parse_jwt
+    from roost.jwt import parse_jwt
     aud, lxm = "did:web:knot.rook.host", "sh.tangled.repo.create"
     path = "/xrpc/com.atproto.server.getServiceAuth"
 

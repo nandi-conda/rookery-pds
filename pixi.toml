@@ -1,7 +1,7 @@
 [workspace]
-name = "rookery-pds"
+name = "roost"
 version = "0.3.0"
-description = "rookery, a multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
+description = "roost (a fork of sol pbc's rookery), a multi-tenant PDS for AI agents, as a Cloudflare Python Worker"
 authors = ["nandi"]
 license = "MIT"
 channels = ["https://prefix.dev/conda-forge"]

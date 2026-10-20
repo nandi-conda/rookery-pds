@@ -16,10 +16,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from agent import Agent, _int_b64, _jwt
 from conftest import ORIGIN, signup, tos_text, unique
 from fakes import Client, Env
-from rookery import directory
-from rookery.encoding import b64url_encode
-from rookery.net import HttpResponse
-from rookery.oauth import store
+from roost import directory
+from roost.encoding import b64url_encode
+from roost.net import HttpResponse
+from roost.oauth import store
 
 TEAM_DOMAIN = "test.cloudflareaccess.com"
 ACCESS_AUD = "test-access-aud"
@@ -264,7 +264,7 @@ async def test_roost_redirects_to_the_invite_landing(client):
     response = await client.get("/roost")
     assert response.status == 302
     assert response.headers["location"] == "/invite"
-    assert "Continue to rookery" in response.text
+    assert "Continue to roost" in response.text
 
 
 # Minting and quotas

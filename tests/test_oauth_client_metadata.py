@@ -10,9 +10,9 @@ import pytest
 
 from fakes import Env
 from oauth_client import CLIENT_ASSERTION_TYPE, EcKey
-from rookery.net import HttpResponse
-from rookery.oauth import store
-from rookery.oauth.client_metadata import (
+from roost.net import HttpResponse
+from roost.oauth import store
+from roost.oauth.client_metadata import (
     ClientAuthError, ClientMetadataError, fetch_client_metadata, match_redirect_uri, reset_cache, verify_client_auth,
 )
 
@@ -63,8 +63,8 @@ async def test_rejects_invalid_documents(env, body):
 @pytest.mark.parametrize("client_id,message", [
     ("http://client.example/client.json", "https"),
     ("https://client.example/client.json#fragment", "fragment"),
-    ("https://rookery.test/client.json", "rookery origin"),
-    ("https://rookery.test/client-metadata.json?alternate=1", "rookery origin"),
+    ("https://rookery.test/client.json", "roost origin"),
+    ("https://rookery.test/client-metadata.json?alternate=1", "roost origin"),
 ])
 async def test_rejects_bad_client_ids_before_fetching(env, client_id, message):
     with pytest.raises(ClientMetadataError, match=message):

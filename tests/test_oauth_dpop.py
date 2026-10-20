@@ -9,10 +9,10 @@ import uuid
 import pytest
 
 from oauth_client import EcKey
-from rookery.encoding import sha256_b64url
-from rookery.oauth import store
-from rookery.oauth.dpop import DpopError, UseDpopNonceError, ec_jwk_thumbprint, validate_oauth_dpop_proof
-from rookery.oauth.nonce import derive_dpop_nonce
+from roost.encoding import sha256_b64url
+from roost.oauth import store
+from roost.oauth.dpop import DpopError, UseDpopNonceError, ec_jwk_thumbprint, validate_oauth_dpop_proof
+from roost.oauth.nonce import derive_dpop_nonce
 
 SECRET = "test-oauth-nonce-secret"
 HTU = "https://server.example/oauth/token"

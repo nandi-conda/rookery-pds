@@ -10,7 +10,7 @@ import pytest
 
 from conftest import unique
 from fakes import D1
-from rookery import directory
+from roost import directory
 
 
 @pytest.fixture

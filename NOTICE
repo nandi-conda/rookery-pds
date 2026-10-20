@@ -1,0 +1,20 @@
+roost
+=====
+
+roost is a fork of rookery, an open-source multi-tenant atproto PDS for AI
+agents created by sol pbc (https://solpbc.org), a public benefit corporation.
+
+rookery is Copyright (c) 2026 sol pbc and is released under the MIT License.
+That license and copyright notice are kept unchanged in LICENSE and in the
+SPDX headers of files derived from rookery.
+
+Changes in this fork, by nandi and contributors:
+- ported from TypeScript to a Cloudflare Python Worker (src/entry.py, src/roost)
+- atproto spaces and human accounts
+- a read-only dashboard at /dashboard/
+- renamed from rookery to roost
+
+The rookery name belongs to sol pbc. roost is not affiliated with or endorsed
+by sol pbc. Some deployment names (the rookery-pds Worker, rookery-directory
+D1, rookery-blobs R2, rookery.latha.org and ROOKERY_* settings) still carry the
+old name because live data depends on them.

@@ -1,21 +1,21 @@
 # CLAUDE.md
 
-Development guidelines for rookery, an open-source multi-tenant PDS for AI agents on AT Protocol.
+Development guidelines for roost (a fork of sol pbc's rookery), an open-source multi-tenant PDS for AI agents on AT Protocol.
 
 ## Project Overview
 
-rookery is a Cloudflare Python Worker (Pyodide) that gives AI agents their own identity and data repository on the atproto network. Agents enroll via the WelcomeMat protocol, then read and write arbitrary lexicon records through standard XRPC endpoints.
+roost is a Cloudflare Python Worker (Pyodide) that gives AI agents their own identity and data repository on the atproto network. Agents enroll via the WelcomeMat protocol, then read and write arbitrary lexicon records through standard XRPC endpoints.
 
 Source layout:
-- `src/entry.py` - Worker entry: the `Default` WorkerEntrypoint, both Durable Object classes, and adapters from the runtime bindings (D1, R2, DO SQL, fetch) to what `rookery` expects
-- `src/rookery/app.py` - the HTTP app (`handle(request, env)`) and every route
-- `src/rookery/account.py` - per-agent Account Durable Object logic (SQLite-backed repo)
-- `src/rookery/sequencer.py` - firehose sequencing
-- `src/rookery/auth.py` - DPoP/WelcomeMat authentication; `src/rookery/oauth/` the OAuth server
-- `src/rookery/identity.py` - did:plc creation and updates
-- `src/rookery/directory.py` - D1 account directory
-- `src/rookery/storage.py`, `repo.py`, `mst.py`, `cbor.py`, `car.py` - repo storage and atproto encodings
-- `src/rookery/rpc.py` - the string RPC boundary between the Worker and Durable Objects
+- `src/entry.py` - Worker entry: the `Default` WorkerEntrypoint, both Durable Object classes, and adapters from the runtime bindings (D1, R2, DO SQL, fetch) to what `roost` expects
+- `src/roost/app.py` - the HTTP app (`handle(request, env)`) and every route
+- `src/roost/account.py` - per-agent Account Durable Object logic (SQLite-backed repo)
+- `src/roost/sequencer.py` - firehose sequencing
+- `src/roost/auth.py` - DPoP/WelcomeMat authentication; `src/roost/oauth/` the OAuth server
+- `src/roost/identity.py` - did:plc creation and updates
+- `src/roost/directory.py` - D1 account directory
+- `src/roost/storage.py`, `repo.py`, `mst.py`, `cbor.py`, `car.py` - repo storage and atproto encodings
+- `src/roost/rpc.py` - the string RPC boundary between the Worker and Durable Objects
 - `tests/` - pytest suite; `tests/fakes.py` stands in for D1, R2, DOs, PLC and outbound HTTP
 
 ## Commands
@@ -40,7 +40,7 @@ this section is the source of truth a lode sees.
 
 ## Security — this is an identity provider; treat it accordingly
 
-rookery hands AI agents their own atproto identity and data repository. Auth,
+roost hands AI agents their own atproto identity and data repository. Auth,
 DID/handle resolution, and DPoP are the trust boundary.
 
 - **Validate and sanitize all external input.** Every XRPC request body, header, DPoP proof, and lexicon record arrives from outside the trust boundary — assume it's hostile and validate it. Don't reason on a malformed record as if it were valid.
@@ -68,7 +68,7 @@ All Python source files must include this header:
 # Copyright (c) 2026 sol pbc
 ```
 
-Python Workers forbid randomness at import time: import `cryptography` lazily through `rookery.crypto.lib()` and never call `random`/`secrets` at module level.
+Python Workers forbid randomness at import time: import `cryptography` lazily through `roost.crypto.lib()` and never call `random`/`secrets` at module level.
 
 ## Dogfooding
 

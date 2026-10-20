@@ -7,9 +7,9 @@ import json
 
 from agent import Agent, _jwt
 from conftest import ORIGIN, signup, tos_text, unique
-from rookery import directory
-from rookery.encoding import sha256_b64url
-from rookery.net import HttpResponse
+from roost import directory
+from roost.encoding import sha256_b64url
+from roost.net import HttpResponse
 
 CREATE = "/xrpc/com.atproto.repo.createRecord"
 

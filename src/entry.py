@@ -3,7 +3,7 @@
 
 """Cloudflare Python Worker entry: the Worker, the Account and Sequencer
 Durable Objects, and adapters from the runtime's bindings to what the
-rookery package expects (see rookery/app.py)."""
+roost package expects (see roost/app.py)."""
 
 import asyncio
 
@@ -12,12 +12,12 @@ from pyodide.ffi import to_js
 from workers import DurableObject, Response, WorkerEntrypoint
 from workers import fetch as runtime_fetch
 
-from rookery import rpc
-from rookery.account import Account
-from rookery.app import handle
-from rookery.net import HttpResponse
-from rookery.sequencer import Sequencer
-from rookery.web import Headers, Request
+from roost import rpc
+from roost.account import Account
+from roost.app import handle
+from roost.net import HttpResponse
+from roost.sequencer import Sequencer
+from roost.web import Headers, Request
 
 SEQUENCER_NAME = "sequencer"
 VARS = (
@@ -146,7 +146,7 @@ async def _call_do(stub, request: str) -> str:
 
 
 class Env:
-    """What rookery.app sees: configuration attributes plus platform services."""
+    """What roost.app sees: configuration attributes plus platform services."""
 
     def __init__(self, env, wait_until):
         for name in VARS:
@@ -166,7 +166,7 @@ class Env:
         return rpc.AccountClient(lambda request: _call_do(stub, request))
 
     async def subscribe_repos(self, request):
-        from rookery.web import Response as AppResponse
+        from roost.web import Response as AppResponse
         stub = self._env.SEQUENCER.getByName(SEQUENCER_NAME)
         return AppResponse(raw=await stub.fetch(request.raw))
 

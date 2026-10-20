@@ -6,9 +6,9 @@
 import pytest
 
 from fakes import SequencerDO
-from rookery import cbor
-from rookery.cbor import CID
-from rookery.sequencer import BACKFILL_LIMIT
+from roost import cbor
+from roost.cbor import CID
+from roost.sequencer import BACKFILL_LIMIT
 
 
 def cid_of(value) -> str:

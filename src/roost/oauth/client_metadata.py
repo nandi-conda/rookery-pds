@@ -122,7 +122,7 @@ def _validate_client_id(client_id: str, hostname: str):
     if url.protocol != "https:":
         raise ClientMetadataError("client_id must use https")
     if url.hostname == hostname and url.href != f"https://{hostname}/client-metadata.json":
-        raise ClientMetadataError("client_id must not use the rookery origin")
+        raise ClientMetadataError("client_id must not use the roost origin")
     return url
 
 

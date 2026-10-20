@@ -4,7 +4,7 @@
 """Password credentials and legacy sessions in D1.
 
 Session tokens are JWT-shaped so clients that read `exp` and `scope` from them
-keep working, but rookery never trusts their contents: a token is valid only
+keep working, but roost never trusts their contents: a token is valid only
 while its SHA-256 is stored here, which also makes revocation immediate.
 """
 

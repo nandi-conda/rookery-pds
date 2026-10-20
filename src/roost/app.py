@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""The rookery HTTP API: WelcomeMat enrollment, OAuth, XRPC, invites, operator routes.
+"""The roost HTTP API: WelcomeMat enrollment, OAuth, XRPC, invites, operator routes.
 
 `handle(request, env)` is the whole app. `env` carries the configuration
 (attribute per variable, None when unset) and the platform services:
@@ -76,7 +76,7 @@ from .web import (
     text_response,
 )
 
-log = logging.getLogger("rookery")
+log = logging.getLogger("roost")
 
 MAX_BLOB_BYTES = 60 * 1024 * 1024
 OAUTH_DISPLAY_FIELDS = ("client_name", "client_uri", "logo_uri", "policy_uri", "tos_uri")
@@ -413,8 +413,8 @@ async def roost(request, env):
         return not_found()
     page = """<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/invite"><title>Rookery</title></head>
-<body><a href="/invite">Continue to rookery</a></body>
+<head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/invite"><title>Roost</title></head>
+<body><a href="/invite">Continue to roost</a></body>
 </html>"""
     return Response(302, page.encode(), [("location", "/invite"), ("content-type", "text/html; charset=utf-8")])
 

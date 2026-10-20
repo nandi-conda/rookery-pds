@@ -11,14 +11,14 @@ import sqlite3
 import uuid
 from urllib.parse import parse_qsl, urlsplit
 
-from rookery import rpc
-from rookery.account import Account
-from rookery.app import handle
-from rookery.cbor import CID
-from rookery import cbor
-from rookery.net import HttpResponse
-from rookery.sequencer import Sequencer
-from rookery.web import Headers, Request
+from roost import rpc
+from roost.account import Account
+from roost.app import handle
+from roost.cbor import CID
+from roost import cbor
+from roost.net import HttpResponse
+from roost.sequencer import Sequencer
+from roost.web import Headers, Request
 
 
 def _connect() -> sqlite3.Connection:
@@ -266,7 +266,7 @@ class Env:
         return self.accounts[do_id]
 
     async def subscribe_repos(self, request):
-        from rookery.web import Response
+        from roost.web import Response
         if (request.header("upgrade") or "").lower() != "websocket":
             return Response(426, b"Expected WebSocket upgrade")
         try:

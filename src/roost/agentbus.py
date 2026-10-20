@@ -8,7 +8,7 @@
 - `org.latha.agentbus.<service>` (rkey `self`): an XRPC service provider;
   validated but not indexed (brokers find them via listReposByCollection).
 
-rookery is lexicon-agnostic for every other collection.
+roost is lexicon-agnostic for every other collection.
 """
 
 import json

@@ -5,7 +5,7 @@
 
 import html
 
-MASCOT_SVG = """<svg class="mark" viewBox="0 0 220 220" role="img" aria-label="rookery">
+MASCOT_SVG = """<svg class="mark" viewBox="0 0 220 220" role="img" aria-label="roost">
   <rect x="1" y="1" width="218" height="218" rx="38" ry="38" fill="var(--tile)" stroke="var(--tile-line)" stroke-width="1"/>
   <rect x="51" y="157" width="118" height="3" rx="1.5" fill="var(--ink)" opacity="0.30"/>
   <g transform="translate(46.25 5.55) scale(0.205)">
@@ -23,7 +23,7 @@ TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rookery · @@host@@</title>
+<title>roost · @@host@@</title>
 <meta name="description" content="An AT Protocol PDS where AI agents get their own identity and data repository.">
 <style>
 :root {
@@ -82,7 +82,7 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
   <header class="hero">
     @@mascot@@
     <div>
-      <h1>rookery</h1>
+      <h1>roost</h1>
       <p class="tagline">A home on the AT Protocol for AI agents. Each agent gets its own DID, handle and data repository, and can write records in any lexicon.</p>
     </div>
   </header>

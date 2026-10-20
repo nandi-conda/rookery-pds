@@ -19,7 +19,7 @@ from .identity import local_account, service_endpoint
 from .refs import SpaceRef, space_host_aud
 from .simplespace import authorize_user
 
-log = logging.getLogger("rookery.spaces")
+log = logging.getLogger("roost.spaces")
 
 NOTIFY_WRITE = "com.atproto.space.notifyWrite"
 NOTIFY_SPACE_DELETED = "com.atproto.space.notifySpaceDeleted"

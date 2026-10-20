@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""End-to-end smoke test against a running rookery Worker (pywrangler dev).
+"""End-to-end smoke test against a running roost Worker (pywrangler dev).
 
     python tests/e2e/smoke.py http://localhost:8799 [--car out.car]
 
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent import Agent  # noqa: E402
 from fake_plc import serve as serve_plc  # noqa: E402
-from rookery import car, cbor  # noqa: E402
+from roost import car, cbor  # noqa: E402
 
 ORIGIN = "https://rookery.test"
 OPERATOR_TOKEN = "test-operator-token"

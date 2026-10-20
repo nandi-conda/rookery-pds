@@ -12,7 +12,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from rookery.encoding import b64url_encode, sha256_b64url
+from roost.encoding import b64url_encode, sha256_b64url
 
 
 def _int_b64(value: int) -> str:

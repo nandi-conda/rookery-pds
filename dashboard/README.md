@@ -1,4 +1,4 @@
-# Rookery dashboard
+# Roost dashboard
 
 A read-only dashboard for this PDS, served by the Worker at `/dashboard/`. It
 reads only public XRPC: `com.atproto.server.describeServer`,

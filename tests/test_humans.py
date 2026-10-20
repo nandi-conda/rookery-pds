@@ -9,8 +9,8 @@ import pytest
 
 from fakes import Client, Env
 from human import sign_up
-from rookery import directory
-from rookery.net import HttpResponse
+from roost import directory
+from roost.net import HttpResponse
 
 
 async def signup(client, name="alice", password="correct horse", **extra):
