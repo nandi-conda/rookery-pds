@@ -92,3 +92,33 @@ def test_aud_matching():
     assert aud_matches("did:web:api.colibri.social", "did:web:api.colibri.social")
     assert not aud_matches(APPVIEW, "did:web:api.colibri.social#other")
     assert not aud_matches(APPVIEW, "did:web:api.colibri.social")
+
+
+def test_expands_space_permissions():
+    from roost.spaces.scopes import space_scope_denial
+    me = "did:plc:me"
+    main = {"type": "permission-set", "permissions": [
+        # social.colibri.beta.permissionAccount, trimmed
+        {"type": "permission", "resource": "space", "spaceType": "social.colibri.beta.actor.preferences",
+         "authority": "self", "skey": "self", "collection": ["social.colibri.beta.actor.settings"],
+         "action": ["read", "create", "update", "delete"], "manage": ["create", "update"]},
+        {"type": "permission", "resource": "space", "spaceType": "social.colibri.beta.channel.text",
+         "authority": "*", "action": ["read"]},
+        # outside the namespace, or with an unknown key
+        {"type": "permission", "resource": "space", "spaceType": "app.bsky.private", "action": ["read"]},
+        {"type": "permission", "resource": "space", "spaceType": "social.colibri.beta.x.y",
+         "collection": ["app.bsky.feed.post"], "action": ["create"]},
+        {"type": "permission", "resource": "space", "spaceType": "social.colibri.beta.x.y", "where": "z"},
+    ]}
+    tokens = expand_permission_set("social.colibri.beta.permissionAccount", main, None)
+    assert len(tokens) == 2
+    scope = " ".join(["atproto", *tokens])
+    prefs = {"type": "social.colibri.beta.actor.preferences", "authority": me, "skey": "self"}
+    assert space_scope_denial(scope, me, prefs, action="read") is None
+    assert space_scope_denial(scope, me, prefs, manage="create") is None
+    assert space_scope_denial(scope, me, prefs, action="create", collection="social.colibri.beta.actor.settings") is None
+    assert space_scope_denial(scope, me, prefs, manage="delete")
+    assert space_scope_denial(scope, me, dict(prefs, authority="did:plc:other"), action="read")
+    text = {"type": "social.colibri.beta.channel.text", "authority": "did:plc:other", "skey": "general"}
+    assert space_scope_denial(scope, me, text, action="read") is None
+    assert space_scope_denial(scope, me, text, action="create", collection="social.colibri.beta.channel.message")

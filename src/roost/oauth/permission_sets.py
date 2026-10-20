@@ -16,6 +16,7 @@ import time
 from urllib.parse import quote
 
 from ..spaces.identity import IdentityError, doc_service_endpoint, resolve_did_doc
+from ..spaces.scopes import parse_space_scope
 from ..syntax import is_valid_did, is_valid_nsid
 from .scopes import REPO_ACTIONS, parse_scope
 
@@ -120,6 +121,27 @@ def _string_list(value) -> list | None:
     return value if isinstance(value, list) and value and all(isinstance(item, str) for item in value) else None
 
 
+SPACE_KEYS = {"type", "resource", "spaceType", "authority", "skey", "collection", "action", "manage"}
+
+
+def _space_token(set_nsid: str, permission: dict) -> str | None:
+    """A space: scope (spaces.scopes syntax) for a space permission whose space type
+    and collections are in the set's namespace; None to ignore it."""
+    if set(permission) - SPACE_KEYS or not _in_namespace(set_nsid, permission.get("spaceType")):
+        return None
+    params = [("authority", permission.get("authority", "self")), ("skey", permission.get("skey", "*"))]
+    for key in ("collection", "action", "manage"):
+        if key in permission:
+            values = _string_list(permission[key])
+            if values is None or (key == "collection" and not all(_in_namespace(set_nsid, c) for c in values)):
+                return None
+            params += [(key, value) for value in values]
+    if not all(isinstance(value, str) for _, value in params):
+        return None
+    token = f"space:{permission['spaceType']}?" + "&".join(f"{key}={quote(value, safe=':*')}" for key, value in params)
+    return token if parse_space_scope(token) else None
+
+
 def expand_permission_set(set_nsid: str, main: dict, aud: str | None) -> list[str]:
     """Concrete scope tokens for one include. Permissions roost can't express exactly,
     or that the spec says to ignore, grant nothing."""
@@ -138,6 +160,10 @@ def expand_permission_set(set_nsid: str, main: dict, aud: str | None) -> list[st
             partial = actions is not None and set(actions) != REPO_ACTIONS
             query = "?" + "&".join(f"action={action}" for action in sorted(set(actions))) if partial else ""
             tokens += [f"repo:{c}{query}" for c in collections if _in_namespace(set_nsid, c)]
+        elif resource == "space":
+            token = _space_token(set_nsid, permission)
+            if token:
+                tokens.append(token)
         elif resource == "rpc":
             if set(permission) - {"type", "resource", "lxm", "aud", "inheritAud"}:
                 continue
