@@ -509,8 +509,8 @@ async def oauth_par(request, env):
         return reply({"error": "invalid_request", "error_description": "client_id required"}, 400)
     try:
         metadata = await fetch_client_metadata(client_id, env)
-    except ClientMetadataError:
-        return reply({"error": "invalid_client", "error_description": "client metadata invalid"}, 401)
+    except ClientMetadataError as exc:
+        return reply({"error": "invalid_client", "error_description": f"client metadata invalid: {exc}"}, 401)
     try:
         client = await verify_client_auth(
             metadata, form.get("client_assertion_type"), form.get("client_assertion"), origin(env), env.db, now,
@@ -692,8 +692,8 @@ async def oauth_token(request, env):
         return oauth_error("invalid_request", 400, "client_id required")
     try:
         metadata = await fetch_client_metadata(client_id, env)
-    except ClientMetadataError:
-        return oauth_error("invalid_client", 401, "client metadata invalid")
+    except ClientMetadataError as exc:
+        return oauth_error("invalid_client", 401, f"client metadata invalid: {exc}")
     try:
         client = await verify_client_auth(
             metadata, form.get("client_assertion_type"), form.get("client_assertion"), issuer, env.db, now,

@@ -557,6 +557,18 @@ async def test_valid_private_key_jwt_assertion(client, env):
                  client_assertion=_assertion(key, client_id, ORIGIN))
 
 
+async def test_private_key_jwt_assertion_with_jwks_uri(client, env):
+    client_id, key = new_client_id("jwks-uri"), EcKey()
+    jwks_uri = client_id.replace(".json", "-jwks.json")
+    env.http.routes[jwks_uri] = lambda *_: HttpResponse(
+        200, json.dumps({"keys": [dict(key.jwk, kid="client-key")]}).encode(), {"content-type": "application/json"})
+    serve_metadata(env, client_id, client_metadata(
+        client_id, token_endpoint_auth_method="private_key_jwt", token_endpoint_auth_signing_alg="ES256",
+        jwks_uri=jwks_uri))
+    await do_par(client, client_id, client_assertion_type=CLIENT_ASSERTION_TYPE,
+                 client_assertion=_assertion(key, client_id, ORIGIN))
+
+
 async def test_private_key_jwt_assertion_with_bad_audience(client, env):
     client_id, key = new_client_id("bad-aud"), EcKey()
     serve_metadata(env, client_id, client_metadata(

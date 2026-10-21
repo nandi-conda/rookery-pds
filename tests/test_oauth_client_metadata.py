@@ -52,8 +52,10 @@ async def test_fetches_and_validates_with_manual_redirects(env):
     valid_metadata(scope="transition:generic"),
     valid_metadata(grant_types=["refresh_token"]),
     valid_metadata(response_types=["token"]),
-    valid_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri="https://client.example/jwks.json"),
-], ids=["client-id-mismatch", "dpop-false", "no-atproto", "no-authorization-code", "no-code", "no-inline-jwks"])
+    valid_metadata(token_endpoint_auth_method="private_key_jwt"),
+    valid_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri="http://client.example/jwks.json"),
+], ids=["client-id-mismatch", "dpop-false", "no-atproto", "no-authorization-code", "no-code", "no-jwks",
+        "http-jwks-uri"])
 async def test_rejects_invalid_documents(env, body):
     serve(env, json_response(body))
     with pytest.raises(ClientMetadataError):
@@ -89,6 +91,31 @@ async def test_builtin_cli_metadata_resolves_locally():
 async def test_rejects_bad_fetch_responses(env, response):
     serve(env, response)
     with pytest.raises(ClientMetadataError):
+        await fetch_client_metadata(CLIENT_ID, env)
+
+
+JWKS_URI = "https://client.example/jwks.json"
+
+
+async def test_resolves_jwks_uri_for_private_key_jwt(env):
+    key = EcKey()
+    jwks = {"keys": [{"kty": "RSA", "n": "x", "e": "AQAB", "kid": "rsa"}, dict(key.jwk, kid="client-key")]}
+    serve(env, json_response(valid_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=JWKS_URI)))
+    env.http.routes[JWKS_URI] = lambda *_: json_response(jwks)
+    metadata = await fetch_client_metadata(CLIENT_ID, env)
+    assert metadata["jwks"] == jwks
+    assert env.http.calls[1]["redirect"] == "manual"
+
+
+@pytest.mark.parametrize("response", [
+    json_response({"keys": []}, 404),
+    json_response({"keys": [{"kty": "RSA", "n": "x", "e": "AQAB"}]}),
+    json_response({"keys": [dict(EcKey().jwk, d="secret")]}),
+], ids=["404", "no-ec-key", "private-key"])
+async def test_rejects_bad_jwks_uri(env, response):
+    serve(env, json_response(valid_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=JWKS_URI)))
+    env.http.routes[JWKS_URI] = lambda *_: response
+    with pytest.raises(ClientMetadataError, match="jwks"):
         await fetch_client_metadata(CLIENT_ID, env)
 
 

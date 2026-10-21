@@ -147,12 +147,44 @@ def validate_client_metadata(client_id: str, body) -> dict:
     if "token_endpoint_auth_signing_alg" in body and body["token_endpoint_auth_signing_alg"] != "ES256":
         raise ClientMetadataError("unsupported token_endpoint_auth_signing_alg")
     if auth_method == "private_key_jwt":
-        jwks = body.get("jwks")
-        if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
-            raise ClientMetadataError("private_key_jwt requires inline jwks")
-        if not jwks["keys"] or not all(_is_ec_public_jwk(key) for key in jwks["keys"]):
-            raise ClientMetadataError("private_key_jwt jwks must contain EC P-256 public keys")
+        if "jwks" in body:
+            _validate_jwks(body["jwks"])
+        elif not isinstance(body.get("jwks_uri"), str) or not body["jwks_uri"].startswith("https://"):
+            raise ClientMetadataError("private_key_jwt requires jwks or an https jwks_uri")
     return body
+
+
+def _validate_jwks(jwks) -> None:
+    if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
+        raise ClientMetadataError("client jwks must be a JWKS object")
+    # A JWKS may also publish keys we can't use (other curves, encryption keys); keep it if any key is ES256-usable.
+    if not any(_is_ec_public_jwk(key) for key in jwks["keys"]):
+        raise ClientMetadataError("client jwks must contain an EC P-256 public key")
+    if any(isinstance(key, dict) and "d" in key for key in jwks["keys"]):
+        raise ClientMetadataError("client jwks must not contain private keys")
+
+
+async def _fetch_json(url: str, env, timeout: float, what: str):
+    try:
+        response = await env.http.fetch(url, redirect="manual", timeout=timeout)
+    except Exception as exc:
+        raise ClientMetadataError(f"{what} fetch failed: {exc}") from exc
+    if 300 <= response.status < 400:
+        raise ClientMetadataError(f"{what} redirects are not allowed")
+    if response.status != 200:
+        raise ClientMetadataError(f"{what} fetch returned HTTP {response.status}")
+    content_type = response.headers.get("content-type", "")
+    if content_type.split(";")[0].strip().lower() not in ("application/json", "application/jwk-set+json"):
+        raise ClientMetadataError(f"{what} content-type must be application/json")
+    length = response.headers.get("content-length")
+    if length is not None and length.isdigit() and int(length) > MAX_CLIENT_METADATA_BYTES:
+        raise ClientMetadataError(f"{what} response body is too large")
+    if len(response.body) > MAX_CLIENT_METADATA_BYTES:
+        raise ClientMetadataError(f"{what} response body is too large")
+    try:
+        return json.loads(response.body)
+    except ValueError as exc:
+        raise ClientMetadataError(f"{what} response is invalid JSON") from exc
 
 
 async def fetch_client_metadata(client_id: str, env, timeout: float = DEFAULT_TIMEOUT_S) -> dict:
@@ -168,27 +200,13 @@ async def fetch_client_metadata(client_id: str, env, timeout: float = DEFAULT_TI
     cached = _cache.get(client_id)
     if cached and time.time() - cached[1] < CACHE_TTL_S:
         return cached[0]
-    try:
-        response = await env.http.fetch(client_id, redirect="manual", timeout=timeout)
-    except Exception as exc:
-        raise ClientMetadataError(f"client metadata fetch failed: {exc}") from exc
-    if 300 <= response.status < 400:
-        raise ClientMetadataError("client metadata redirects are not allowed")
-    if response.status != 200:
-        raise ClientMetadataError("client metadata fetch returned non-200 status")
-    content_type = response.headers.get("content-type", "")
-    if content_type.split(";")[0].strip().lower() != "application/json":
-        raise ClientMetadataError("client metadata content-type must be application/json")
-    length = response.headers.get("content-length")
-    if length is not None and length.isdigit() and int(length) > MAX_CLIENT_METADATA_BYTES:
-        raise ClientMetadataError("client metadata response body is too large")
-    if len(response.body) > MAX_CLIENT_METADATA_BYTES:
-        raise ClientMetadataError("client metadata response body is too large")
-    try:
-        body = json.loads(response.body)
-    except ValueError as exc:
-        raise ClientMetadataError("client metadata response is invalid JSON") from exc
+    body = await _fetch_json(client_id, env, timeout, "client metadata")
     metadata = validate_client_metadata(client_id, body)
+    if metadata.get("token_endpoint_auth_method") == "private_key_jwt" and "jwks" not in metadata:
+        # Resolve jwks_uri here so client auth checks one inline key set; the cache TTL bounds key-rotation lag.
+        jwks = await _fetch_json(metadata["jwks_uri"], env, timeout, "client jwks_uri")
+        _validate_jwks(jwks)
+        metadata = dict(metadata, jwks=jwks)
     _cache[client_id] = (metadata, time.time())
     return metadata
 
@@ -235,7 +253,7 @@ async def verify_client_auth(metadata: dict, client_assertion_type: str | None, 
         raise ClientAuthError("client assertion alg must be ES256")
     if header.get("jwk"):
         raise ClientAuthError("client assertion must use metadata jwks")
-    keys = (metadata.get("jwks") or {}).get("keys") or []
+    keys = [key for key in (metadata.get("jwks") or {}).get("keys") or [] if _is_ec_public_jwk(key)]
     kid = header.get("kid")
     candidates = [key for key in keys if key.get("kid") == kid] if isinstance(kid, str) else keys
     if not candidates:
