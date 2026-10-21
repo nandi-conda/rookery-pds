@@ -258,9 +258,9 @@ WRITE_ACTIONS = {
 }
 
 
-def require_scope(auth: dict, op: str, writes: list[tuple[str, str]]) -> None:
+def require_scope(auth: dict, op: str, writes: list[tuple[str, str]], mime_type: str = "") -> None:
     if auth["kind"] == "oauth":
-        denied = enforce_scope(auth["scope"], op, writes)
+        denied = enforce_scope(auth["scope"], op, writes, mime_type)
         if denied:
             raise AuthFailure(error("InsufficientScope", f"Scope does not permit {denied}", 403))
 
@@ -1459,11 +1459,11 @@ async def upload_blob(request, env):
     if js_int(request.header("content-length"), 0) > MAX_BLOB_BYTES:
         return error("BlobTooLarge", "Blob exceeds 60MB limit", 400)
     auth = await authenticate(request, env, "POST")
-    require_scope(auth, "uploadBlob", [])
+    mime_type = request.header("content-type") or "application/octet-stream"
+    require_scope(auth, "uploadBlob", [], mime_type)
     data = await request.bytes()
     if len(data) > MAX_BLOB_BYTES:
         return error("BlobTooLarge", "Blob exceeds 60MB limit", 400)
-    mime_type = request.header("content-type") or "application/octet-stream"
     cid = blob_cid(data)
     await env.blobs.put(f"{auth['did']}/{cid}", data, mime_type)
     await env.account(auth["do_id"]).insert_blob(cid=cid, mime_type=mime_type, size=len(data))

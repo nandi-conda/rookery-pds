@@ -2,11 +2,11 @@
 # Copyright (c) 2026 sol pbc
 
 """The OAuth scopes roost grants: atproto, transition:generic, repo:<nsid>[?action=...],
-blob:*/*, rpc:<lxm>?aud=<did[#service]|*>, include:<nsid>?aud=<did#service>
+blob:<mime pattern>, rpc:<lxm>?aud=<did[#service]|*>, include:<nsid>?aud=<did#service>
 (expanded by oauth.permission_sets), and space:<type>?... (see spaces.scopes)."""
 
 import re
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 
 from ..spaces.scopes import parse_space_scope
 from ..syntax import is_valid_did, is_valid_nsid
@@ -38,6 +38,39 @@ def _parse_repo(token: str) -> dict | None:
         return None
     actions = frozenset(value for _, value in params) or REPO_ACTIONS
     return {"kind": "repo", "collection": collection, "actions": actions}
+
+
+_MIME_PART = r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*"
+_MIME_PATTERN = re.compile(rf"\*/\*|{_MIME_PART}/(\*|{_MIME_PART})")
+
+
+def _parse_blob(token: str) -> dict | None:
+    """blob:<accept> or blob?accept=<accept>[&accept=...]; each accept is */*, type/* or type/subtype."""
+    body = token[len("blob"):]
+    if body.startswith(":"):
+        positional, _, query = body[1:].partition("?")
+        accepts = [unquote(positional)]
+    elif body.startswith("?"):
+        positional, query = None, body[1:]
+        accepts = []
+    else:
+        return None
+    params = parse_qsl(query, keep_blank_values=True)
+    if any(key != "accept" for key, _ in params):
+        return None
+    accepts += [value for _, value in params]
+    if not accepts or not all(_MIME_PATTERN.fullmatch(accept) for accept in accepts):
+        return None
+    return {"kind": "blob", "accept": frozenset(accepts)}
+
+
+def mime_accepted(accept, mime_type: str) -> bool:
+    mime = mime_type.split(";")[0].strip().lower()
+    return any(
+        pattern == "*/*" or pattern.lower() == mime
+        or (pattern.endswith("/*") and mime.startswith(pattern[:-1].lower()))
+        for pattern in accept
+    )
 
 
 def _parse_include(token: str) -> dict | None:
@@ -77,9 +110,8 @@ def parse_scope_token(token: str) -> dict | None:
         return {"kind": "transition"}
     if token.startswith("repo:"):
         return _parse_repo(token)
-    if token.startswith("blob:"):
-        mime = token[len("blob:"):]
-        return {"kind": "blob", "mime": mime} if mime == "*/*" else None
+    if token.startswith(("blob:", "blob?")):
+        return _parse_blob(token)
     if token.startswith("rpc:"):
         return _parse_rpc(token)
     if token.startswith("include:"):
@@ -104,16 +136,16 @@ def is_valid_scope_string(scope: str) -> bool:
     return parse_scope(scope) is not None
 
 
-def enforce_scope(scope: str, op: str, writes: list[tuple[str, str]]) -> str | None:
-    """None when `scope` permits op ("write" | "uploadBlob"); else the missing scope.
+def enforce_scope(scope: str, op: str, writes: list[tuple[str, str]], mime_type: str = "") -> str | None:
+    """None when `scope` permits op ("write" | "uploadBlob" of `mime_type`); else the missing scope.
     `writes` are (collection, action) pairs, action being create, update or delete."""
     tokens = parse_scope(scope)
     if tokens is None:
         return "scope"
     has_transition = any(token["kind"] == "transition" for token in tokens)
-    has_blob = any(token["kind"] == "blob" and token["mime"] == "*/*" for token in tokens)
     if op == "uploadBlob":
-        return None if has_transition or has_blob else "blob"
+        has_blob = any(token["kind"] == "blob" and mime_accepted(token["accept"], mime_type) for token in tokens)
+        return None if has_transition or has_blob else f"blob:{mime_type}"
     if has_transition:
         return None
     granted = {(token["collection"], action) for token in tokens if token["kind"] == "repo" for action in token["actions"]}
