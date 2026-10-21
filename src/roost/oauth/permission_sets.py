@@ -12,6 +12,7 @@ fails. The record is fetched over HTTPS from the authority's PDS without
 verifying its commit signature."""
 
 import json
+import re
 import time
 from urllib.parse import quote
 
@@ -196,3 +197,23 @@ async def effective_scope(env, scope: str, now: int | None = None) -> str:
             main = await resolve_permission_set(env, token["nsid"], now)
             extra += expand_permission_set(token["nsid"], main, token["aud"])
     return " ".join([scope, *dict.fromkeys(extra)])
+
+
+async def build_token_scope(env, scope: str, now: int | None = None) -> str:
+    """The scope a token is granted: each include: replaced by its expansion, the
+    other tokens kept, as @atproto/oauth-provider's buildTokenScope does. Clients
+    check the token response against this shape."""
+    tokens = [token for token in re.split(r"\s+", scope) if token]
+    if not any(token.startswith("include:") for token in tokens):
+        return scope
+    parsed = parse_scope(scope)
+    if parsed is None:
+        return scope
+    expanded, others = [], []
+    for raw, token in zip(tokens, parsed):
+        if token["kind"] == "include":
+            main = await resolve_permission_set(env, token["nsid"], now)
+            expanded += expand_permission_set(token["nsid"], main, token["aud"])
+        else:
+            others.append(raw)
+    return " ".join(dict.fromkeys(expanded + others))

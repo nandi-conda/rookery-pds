@@ -369,7 +369,9 @@ async def test_include_scopes_expand_permission_sets(client, env, issue):
 
     scope = f"atproto include:social.colibri.permissionAccount?aud={COLIBRI_APPVIEW}"
     _, par, token = await issue(scope)
-    assert token["scope"] == scope
+    # Like @atproto/oauth-provider, the token's scope carries the expansion in place of the include:.
+    assert token["scope"] == ("repo:social.colibri.actor.profile "
+                              "rpc:social.colibri.actor.getData?aud=did:web:api.colibri.social%23colibri_appview atproto")
 
     response = await create_with_oauth(client, par, token, "social.colibri.actor.profile", "self")
     assert response.status == 200, response.text

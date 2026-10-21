@@ -60,7 +60,7 @@ from .oauth.metadata import (
 )
 from .oauth.nonce import derive_dpop_nonce
 from .oauth.resource_server import InvalidOauthTokenError, resolve_oauth_access_token
-from .oauth.permission_sets import PermissionSetError, effective_scope
+from .oauth.permission_sets import PermissionSetError, build_token_scope, effective_scope
 from .oauth.scopes import enforce_rpc_scope, enforce_scope, is_valid_aud, is_valid_scope_string
 from .cbor import CID
 from .repo import RepoError
@@ -716,6 +716,10 @@ async def oauth_token(request, env):
             or sha256_b64url(verifier) != row["code_challenge"]
         ):
             return invalid_grant()
+        try:
+            scope = await build_token_scope(env, row["scope"], now)
+        except PermissionSetError as exc:
+            return oauth_error("invalid_request", 400, str(exc))
         session_id = random_b64url()
         refresh = f"rkrt_{random_b64url()}"
         access = f"rkat_{random_b64url()}"
@@ -723,13 +727,13 @@ async def oauth_token(request, env):
         access_exp = now + min(900, session_exp - now)
         await store.insert_session(env.db, {
             "session_id": session_id, "refresh_token_hash": sha256_b64url(refresh), "client_id": row["client_id"],
-            "did": row["did"], "scope": row["scope"], "dpop_jkt": row["dpop_jkt"], "exp": session_exp,
+            "did": row["did"], "scope": scope, "dpop_jkt": row["dpop_jkt"], "exp": session_exp,
         }, now)
         await store.insert_token(env.db, {
             "access_token_hash": sha256_b64url(access), "session_id": session_id, "client_id": row["client_id"],
-            "did": row["did"], "scope": row["scope"], "dpop_jkt": row["dpop_jkt"], "exp": access_exp,
+            "did": row["did"], "scope": scope, "dpop_jkt": row["dpop_jkt"], "exp": access_exp,
         }, now)
-        return tokens(access, refresh, access_exp, row["scope"], row["did"])
+        return tokens(access, refresh, access_exp, scope, row["did"])
 
     refresh = form.get("refresh_token")
     if not refresh:
