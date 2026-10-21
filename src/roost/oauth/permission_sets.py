@@ -143,9 +143,23 @@ def _space_token(set_nsid: str, permission: dict) -> str | None:
     return token if parse_space_scope(token) else None
 
 
+REPO_ACTION_ORDER = ("create", "update", "delete")
+
+
+def _format_permission(resource: str, positional: str, values: list[str], params: list[tuple[str, str]]) -> str:
+    """A permission as @atproto/oauth-scopes formats it: one value goes in the positional
+    slot, several are deduped, sorted and repeated as query params."""
+    values = sorted(set(values)) if len(values) > 1 else values
+    head = f"{resource}:{quote(values[0], safe=':*')}" if len(values) == 1 else resource
+    query = [(positional, value) for value in values] if len(values) > 1 else []
+    query += params
+    return head + ("?" + "&".join(f"{key}={quote(value, safe=':*')}" for key, value in query) if query else "")
+
+
 def expand_permission_set(set_nsid: str, main: dict, aud: str | None) -> list[str]:
-    """Concrete scope tokens for one include. Permissions roost can't express exactly,
-    or that the spec says to ignore, grant nothing."""
+    """Concrete scope tokens for one include, one per permission, in the form
+    @atproto/oauth-provider grants them. Permissions roost can't express exactly,
+    that reach outside the set's namespace, or that the spec says to ignore, grant nothing."""
     tokens = []
     for permission in main.get("permissions", []):
         if not isinstance(permission, dict) or permission.get("type") != "permission":
@@ -158,9 +172,11 @@ def expand_permission_set(set_nsid: str, main: dict, aud: str | None) -> list[st
             actions = permission.get("action")
             if not collections or (actions is not None and not (_string_list(actions) and set(actions) <= REPO_ACTIONS)):
                 continue
+            if not all(_in_namespace(set_nsid, c) for c in collections):
+                continue
             partial = actions is not None and set(actions) != REPO_ACTIONS
-            query = "?" + "&".join(f"action={action}" for action in sorted(set(actions))) if partial else ""
-            tokens += [f"repo:{c}{query}" for c in collections if _in_namespace(set_nsid, c)]
+            params = [("action", action) for action in REPO_ACTION_ORDER if action in actions] if partial else []
+            tokens.append(_format_permission("repo", "collection", collections, params))
         elif resource == "space":
             token = _space_token(set_nsid, permission)
             if token:
@@ -178,8 +194,8 @@ def expand_permission_set(set_nsid: str, main: dict, aud: str | None) -> list[st
                 target = "*"
             else:
                 continue
-            if lxms:
-                tokens += [f"rpc:{lxm}?aud={quote(target, safe=':*')}" for lxm in lxms if _in_namespace(set_nsid, lxm)]
+            if lxms and all(_in_namespace(set_nsid, lxm) for lxm in lxms):
+                tokens.append(_format_permission("rpc", "lxm", lxms, [("aud", target)]))
     return tokens
 
 
@@ -216,4 +232,4 @@ async def build_token_scope(env, scope: str, now: int | None = None) -> str:
             expanded += expand_permission_set(token["nsid"], main, token["aud"])
         else:
             others.append(raw)
-    return " ".join(dict.fromkeys(expanded + others))
+    return " ".join(expanded + others)

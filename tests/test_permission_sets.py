@@ -4,7 +4,7 @@
 """Expanding include: permission sets into concrete scopes (atproto.com/specs/permission)."""
 
 from roost.oauth.permission_sets import authority_domain, expand_permission_set
-from roost.oauth.scopes import aud_matches, enforce_scope, parse_scope
+from roost.oauth.scopes import aud_matches, enforce_rpc_scope, enforce_scope, parse_scope
 
 APPVIEW = "did:web:api.colibri.social#colibri_appview"
 
@@ -26,12 +26,33 @@ def test_authority_domain():
 
 
 def test_expands_repo_and_inherited_rpc_permissions():
+    # Byte-for-byte what @atproto/oauth-scopes' IncludeScope.toScopes produces for this set.
     assert expand_permission_set("social.colibri.permissionAccount", ACCOUNT_SET, APPVIEW) == [
-        "repo:social.colibri.actor.data",
-        "repo:social.colibri.actor.profile",
-        "rpc:social.colibri.actor.getData?aud=did:web:api.colibri.social%23colibri_appview",
-        "rpc:social.colibri.sync.subscribeEvents?aud=did:web:api.colibri.social%23colibri_appview",
+        "repo?collection=social.colibri.actor.data&collection=social.colibri.actor.profile",
+        "rpc?lxm=social.colibri.actor.getData&lxm=social.colibri.sync.subscribeEvents"
+        "&aud=did:web:api.colibri.social%23colibri_appview",
     ]
+
+
+LICHEN_SET = {"type": "permission-set", "permissions": [{"type": "permission", "resource": "repo", "collection": [
+    "wiki.lichen.wiki", "wiki.lichen.note", "wiki.lichen.noteRevision", "wiki.lichen.noteSnapshot",
+    "wiki.lichen.membership"]}]}
+
+
+async def test_token_scope_matches_the_reference_provider(env, monkeypatch):
+    """reams.ink's broker rejects a token scope that differs from @atproto/oauth-provider's buildTokenScope."""
+    from roost.oauth import permission_sets
+
+    async def resolve(_env, nsid, _now=None):
+        return LICHEN_SET
+    monkeypatch.setattr(permission_sets, "resolve_permission_set", resolve)
+    scope = await permission_sets.build_token_scope(
+        env, "atproto repo:ink.reams.vaultAuthority include:wiki.lichen.permissions")
+    assert scope == (
+        "repo?collection=wiki.lichen.membership&collection=wiki.lichen.note&collection=wiki.lichen.noteRevision"
+        "&collection=wiki.lichen.noteSnapshot&collection=wiki.lichen.wiki atproto repo:ink.reams.vaultAuthority")
+    assert enforce_scope(scope, "write", [("wiki.lichen.note", "create"), ("ink.reams.vaultAuthority", "update")]) is None
+    assert enforce_scope(scope, "write", [("wiki.lichen.other", "create")]) is not None
 
 
 def test_ignores_permissions_it_cannot_honor_exactly():
@@ -122,3 +143,15 @@ def test_expands_space_permissions():
     text = {"type": "social.colibri.beta.channel.text", "authority": "did:plc:other", "skey": "general"}
     assert space_scope_denial(scope, me, text, action="read") is None
     assert space_scope_denial(scope, me, text, action="create", collection="social.colibri.beta.channel.message")
+
+
+def test_parses_the_multi_value_repo_and_rpc_forms():
+    scope = ("atproto repo?collection=a.b.c&collection=a.b.d&action=create "
+             "rpc?lxm=a.b.get&lxm=a.b.list&aud=did:web:x.test%23svc")
+    assert enforce_scope(scope, "write", [("a.b.d", "create")]) is None
+    assert enforce_scope(scope, "write", [("a.b.d", "delete")]) == "repo:a.b.d?action=delete"
+    assert enforce_rpc_scope(scope, "a.b.list", "did:web:x.test#svc") is None
+    assert enforce_rpc_scope(scope, "a.b.other", "did:web:x.test#svc") is not None
+    for bad in ("repo?action=create", "repo?collection=a.b.c&collection=nope", "rpc?lxm=a.b.get",
+                "rpc?lxm=a.b.get&aud=did:web:x.test&aud=did:web:y.test"):
+        assert parse_scope(f"atproto {bad}") is None, bad
