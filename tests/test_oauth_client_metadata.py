@@ -180,6 +180,12 @@ async def test_rejects_bad_assertions(db, make):
         await verify_client_auth(metadata, CLIENT_ASSERTION_TYPE, assertion, ISSUER, db, NOW)
 
 
+async def test_public_client_ignores_a_sent_assertion(db):
+    _, assertion = metadata_and_assertion()
+    assert await verify_client_auth(valid_metadata(), CLIENT_ASSERTION_TYPE, assertion, ISSUER, db, NOW) == {
+        "method": "none", "client_id": CLIENT_ID}
+
+
 async def test_rejects_a_replayed_assertion_jti(db):
     metadata, assertion = metadata_and_assertion()
     assert await verify_client_auth(metadata, CLIENT_ASSERTION_TYPE, assertion, ISSUER, db, NOW)

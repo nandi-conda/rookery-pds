@@ -238,8 +238,8 @@ async def verify_client_auth(metadata: dict, client_assertion_type: str | None, 
                              issuer: str, db, now: int) -> dict:
     auth_method = metadata.get("token_endpoint_auth_method") or "none"
     if auth_method == "none":
-        if client_assertion or client_assertion_type:
-            raise ClientAuthError("public clients must not send client assertions")
+        # Like @atproto/oauth-provider, a public client is authenticated by its metadata alone and any assertion
+        # it sends is ignored: backends such as HappyView attach one when refreshing a public client's session.
         return {"method": "none", "client_id": metadata["client_id"]}
     if client_assertion_type != CLIENT_ASSERTION_TYPE:
         raise ClientAuthError("invalid client_assertion_type")
