@@ -2,15 +2,16 @@
 # Copyright (c) 2026 sol pbc
 
 """Point every DID on a roost host at that host after a hostname change: for
-each repo HOST lists, re-sign its PLC document (PDS endpoint and handle) with
-the account's rotation key, then ask the relays to crawl HOST.
+each repo HOST lists, re-sign its PLC document (PDS endpoint, handle and the
+#atproto_kem key spaces need) with the account's rotation key, then ask the
+relays to crawl HOST.
 
     uv run python scripts/sync_identities.py [did ...]
 
 HOST defaults to https://roost.latha.org. The operator token comes from
 ROOKERY_OPERATOR_TOKEN, or else the file `pixi run cf-operator-token` saved.
 With no DIDs it syncs every repo HOST lists. DIDs whose PLC document already
-names HOST are skipped, so re-running is safe.
+names HOST and publishes an #atproto_kem key are skipped, so re-running is safe.
 """
 
 import os
@@ -34,13 +35,13 @@ def main() -> None:
         print(f"syncing {len(dids)} DID(s) to {host}")
         for did in dids:
             doc = ok(http.get(f"{PLC}/{did}/data"), f"PLC {did}").json()
-            if doc["services"]["atproto_pds"]["endpoint"] == host:
-                print(f"{did}: already on {host}")
+            if doc["services"]["atproto_pds"]["endpoint"] == host and "atproto_kem" in doc["verificationMethods"]:
+                print(f"{did}: already on {host} with a KEM key")
                 continue
             described = ok(http.get(f"{host}/xrpc/com.atproto.repo.describeRepo", params={"repo": did}), f"describeRepo {did}")
             synced = ok(http.post(f"{host}/operator/identity/sync", json={"did": did, "handle": described.json()["handle"]},
                                   headers=auth), f"identity sync {did}").json()
-            print(f"{did}: PLC now names {synced['pds']} as the PDS of {synced['handle']}")
+            print(f"{did}: PLC now names {synced['pds']} as the PDS of {synced['handle']}, with a KEM key")
 
         hostname = urlsplit(host).hostname
         for relay in RELAYS:

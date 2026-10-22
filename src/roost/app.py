@@ -37,7 +37,7 @@ from .humans import store as human_store
 from .humans.pages import render_consent_page
 from .handle_policy import is_reserved_or_blocked
 from .jwt import JwtFormatError, parse_jwt, rs256_verify
-from .keys import Secp256k1Keypair
+from .keys import P256Keypair, Secp256k1Keypair
 from .landing import render_landing_page
 from .oauth import store
 from .oauth.client_metadata import (
@@ -84,14 +84,17 @@ log = logging.getLogger("roost")
 
 MAX_BLOB_BYTES = 60 * 1024 * 1024
 OAUTH_DISPLAY_FIELDS = ("client_name", "client_uri", "logo_uri", "policy_uri", "tos_uri")
-CORS_EXPOSE = "Content-Type,DPoP-Nonce,WWW-Authenticate,Idempotency-Replayed,Atproto-Repo-Rev,Atproto-Content-Labelers"
+CORS_EXPOSE = (
+    "Content-Type,DPoP-Nonce,WWW-Authenticate,Idempotency-Replayed,Atproto-Repo-Rev,Atproto-Content-Labelers,"
+    "Atproto-Space-Mac"
+)
 CORS_ALLOW_METHODS = "GET,HEAD,POST,PUT,DELETE,OPTIONS"
 # Preflights reflect the requested headers, as the reference PDS does: clients
 # like bsky.app add their own (X-Atproto-Session-Id). This list answers
 # preflights that name none.
 CORS_ALLOW_HEADERS = (
     "Content-Type,Authorization,DPoP,Idempotency-Key,Accept-Language,"
-    "Atproto-Proxy,Atproto-Accept-Labelers,Atproto-Space-Audience"
+    "Atproto-Proxy,Atproto-Accept-Labelers,Atproto-Space-Audience,Atproto-Space-Want-Mac,Signature,Signature-Input"
 )
 
 router = Router()
@@ -966,19 +969,20 @@ async def provision_account(env, handle: str, invite: str | None, jwk_thumbprint
     Spends `invite` when given. Raises AuthFailure for a spent invite or a taken handle."""
     signing = Secp256k1Keypair.create()
     rotation = Secp256k1Keypair.create()
+    kem = P256Keypair()
     if invite and not await directory.spend_invite_pending(env.db, invite):
         raise AuthFailure(error("InviteInvalid", "Invite is invalid or already spent.", 403))
     try:
         did = await identity.create_plc_did(
             env.http, handle, env.ROOKERY_HOSTNAME, signing, rotation, env.ROOKERY_PLC_URL,
-            env.ROOKERY_AGENTBUS_ENDPOINT,
+            env.ROOKERY_AGENTBUS_ENDPOINT, kem.did(),
         )
         do_id = env.new_account_id()
         await env.account(do_id).init_account(
             did=did, handle=handle,
             signing_key_hex=signing.export_hex(), signing_key_pub=signing.did().split(":")[-1],
             rotation_key_hex=rotation.export_hex(), rotation_key_pub=rotation.did().split(":")[-1],
-            jwk_thumbprint=jwk_thumbprint,
+            jwk_thumbprint=jwk_thumbprint, kem_key_hex=kem.export_hex(),
         )
         await directory.insert_account(env.db, did, handle, do_id, jwk_thumbprint)
     except Exception as exc:
@@ -1038,7 +1042,8 @@ async def signup(request, env):
 
 
 async def _repoint_identity(env, did: str, do_id: str, handle: str) -> None:
-    """Publish `handle` and this host to PLC, then record it in the DO, D1 and DNS."""
+    """Publish `handle`, this host and the account's #atproto_kem key (made now for
+    an account that predates them) to PLC, then record it in the DO, D1 and DNS."""
     account = env.account(do_id)
 
     async def sign(data: bytes) -> dict:
@@ -1046,6 +1051,7 @@ async def _repoint_identity(env, did: str, do_id: str, handle: str) -> None:
 
     await identity.update_plc_handle(
         env.http, did, handle, origin(env), sign, env.ROOKERY_PLC_URL, env.ROOKERY_AGENTBUS_ENDPOINT,
+        await account.space_kem_key(create=True),
     )
     await account.set_handle(handle=handle)
     await directory.update_account_handle(env.db, did, handle)
@@ -1386,9 +1392,11 @@ def _did_doc_matches(doc: dict, status: dict, pds_endpoint: str) -> bool:
 @router.get("/xrpc/com.atproto.identity.getRecommendedDidCredentials")
 async def get_recommended_did_credentials(request, env):
     auth = await authenticate(request, env, "GET")
-    status = await env.account(auth["do_id"]).account_status()
+    account = env.account(auth["do_id"])
+    status = await account.account_status()
     return json_response(identity.did_credentials(
         status["handle"], origin(env), status["signing_did"], status["rotation_did"], env.ROOKERY_AGENTBUS_ENDPOINT,
+        await account.space_kem_key(),
     ))
 
 

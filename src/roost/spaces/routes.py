@@ -10,19 +10,29 @@ accounts create, and the user's PDS that mints delegation tokens.
 
 from ..app import authenticate, clamp, read_json, resolve_or_404, router
 from ..errors import XrpcError
+from ..keys import p256_did_key_point
 from ..lexjson import json_to_lex, lex_to_json
 from ..syntax import is_valid_did, is_valid_nsid, is_valid_record_key
 from ..tid import next_tid
 from ..web import Response, body_response, json_response
 from .auth import (
     ensure_revocations,
-    auth_scheme,
+    is_space_credential,
     verify_client_attestation,
     verify_delegation,
     verify_service_auth,
     verify_space_credential,
 )
 from .identity import local_account, service_endpoint
+from .mac import (
+    COMMIT_MAC_TYPE,
+    MAC_HEADER,
+    RECORD_MAC_TYPE,
+    WANT_MAC_HEADER,
+    SpaceMacError,
+    format_mac_header,
+    parse_want_mac_header,
+)
 from .notify import notify_space_deleted, notify_write, process_notify_write
 from .refs import InvalidSpaceRef, SpaceRef, space_host_aud
 from .scopes import space_scope_denial
@@ -94,15 +104,17 @@ def assert_credential_space(credential: dict, space: str, audience: str | None =
         raise XrpcError("InvalidCredential", "Credential is not scoped to this space")
 
 
-async def read_access(request, env, space: str, repo: str) -> dict:
+async def read_access(request, env, space: str, repo: str, mac_type: str | None = None) -> dict:
     """Authorize a read of `repo`'s data in `space`: its own account (OAuth needs
-    read_self) or a space credential for the space. Returns the repo's directory row."""
+    read_self) or a space credential for the space. Returns the repo's directory row,
+    plus the requested MAC's `key_share` for methods that return a commit or record
+    (`mac_type`): required with a space credential, optional for the account itself."""
     ref = parse_space(space)
     require_did(repo, "repo")
-    if auth_scheme(request) == "atproto-space":
-        credential = await verify_space_credential(request, env)
+    credential = is_space_credential(request)
+    if credential:
         # At a repo host, a credential's audience is the repo's own account.
-        assert_credential_space(credential, space, repo)
+        assert_credential_space(await verify_space_credential(request, env), space, repo)
     else:
         auth = await authenticate(request, env, request.method)
         if auth["did"] != repo:
@@ -110,7 +122,24 @@ async def read_access(request, env, space: str, repo: str) -> dict:
             # caller cannot read is not the caller's business.
             raise XrpcError("RepoNotFound", f"Could not find repo for DID: {repo}")
         check_space_scope(auth, ref, action="read_self")
-    return await resolve_or_404(env, repo)
+    resolved = await resolve_or_404(env, repo)
+    key_share = None
+    if mac_type and (credential or request.header(WANT_MAC_HEADER) is not None):
+        try:
+            key_share = parse_want_mac_header(request.header(WANT_MAC_HEADER), mac_type)
+        except SpaceMacError as exc:
+            raise XrpcError(exc.code, str(exc)) from exc
+        if p256_did_key_point(key_share) is None:
+            raise XrpcError("BadSpaceMac", "key_share must be a P-256 did:key")
+    return dict(resolved, key_share=key_share)
+
+
+def mac_response(response: Response, mac_type: str, mac: bytes | None) -> Response:
+    """Every MAC-bearing method varies on the request header; a MAC rides in its own."""
+    response.set_header("Vary", WANT_MAC_HEADER)
+    if mac is not None:
+        response.set_header(MAC_HEADER, format_mac_header(mac_type, mac))
+    return response
 
 
 def repo_not_found(space: str) -> XrpcError:
@@ -193,11 +222,14 @@ async def get_record(request, env):
     collection, rkey = request.query("collection"), request.query("rkey")
     if not is_valid_nsid(collection) or not is_valid_record_key(rkey):
         raise invalid("Invalid collection or rkey")
-    resolved = await read_access(request, env, space, repo)
-    record = await env.account(resolved["do_id"]).space_get_record(space=space, collection=collection, rkey=rkey)
+    resolved = await read_access(request, env, space, repo, RECORD_MAC_TYPE)
+    record = await env.account(resolved["do_id"]).space_get_record(
+        space=space, collection=collection, rkey=rkey, key_share=resolved["key_share"],
+    )
     if not record:
         raise XrpcError("RecordNotFound", f"Could not locate record: {space}/{repo}/{collection}/{rkey}")
-    return json_response({"uri": record["uri"], "cid": record["cid"], "value": record["value"]})
+    response = json_response({"uri": record["uri"], "cid": record["cid"], "value": record["value"]})
+    return mac_response(response, RECORD_MAC_TYPE, record["mac"])
 
 
 def flag(request, name: str) -> bool:
@@ -226,29 +258,28 @@ async def list_records(request, env):
 @router.get(X + "getLatestCommit")
 async def get_latest_commit(request, env):
     space, repo = request.query("space"), request.query("repo")
-    resolved = await read_access(request, env, space, repo)
-    commit = await env.account(resolved["do_id"]).space_latest_commit(space=space)
-    if not commit:
+    resolved = await read_access(request, env, space, repo, COMMIT_MAC_TYPE)
+    head = await env.account(resolved["do_id"]).space_latest_commit(space=space, key_share=resolved["key_share"])
+    if not head:
         raise repo_not_found(space)
-    return json_response({"commit": lex_to_json(commit)})
+    return mac_response(json_response({"commit": lex_to_json(head["commit"])}), COMMIT_MAC_TYPE, head["mac"])
 
 
 @router.get(X + "getRepo")
 async def get_repo(request, env):
     space, repo = request.query("space"), request.query("repo")
-    resolved = await read_access(request, env, space, repo)
-    data = await env.account(resolved["do_id"]).space_export_car(
-        space=space, exclude_values=flag(request, "excludeValues"),
-    )
-    if data is None:
+    resolved = await read_access(request, env, space, repo, COMMIT_MAC_TYPE)
+    archive = await env.account(resolved["do_id"]).space_export_star(space=space, key_share=resolved["key_share"])
+    if archive is None:
         raise repo_not_found(space)
-    return body_response(data, 200, "application/vnd.ipld.car")
+    return mac_response(body_response(archive["data"], 200, "application/octet-stream"), COMMIT_MAC_TYPE,
+                        archive["mac"])
 
 
 @router.get(X + "listRepoOps")
 async def list_repo_ops(request, env):
     space, repo = request.query("space"), request.query("repo")
-    resolved = await read_access(request, env, space, repo)
+    resolved = await read_access(request, env, space, repo, COMMIT_MAC_TYPE)
     limit = clamp(request.query("limit"), 100, 1000)
     cursor = None
     if request.query("cursor"):
@@ -258,7 +289,7 @@ async def list_repo_ops(request, env):
         cursor = [rev, int(idx)]
     result = await env.account(resolved["do_id"]).space_list_repo_ops(
         space=space, limit=limit, since=request.query("since") or None, cursor=cursor,
-        exclude_values=flag(request, "excludeValues"),
+        exclude_values=flag(request, "excludeValues"), key_share=resolved["key_share"],
     )
     ops = result["ops"]
     out = {"ops": [{k: op.get(k) for k in ("rev", "collection", "rkey", "cid", "prev", "value") if k in op}
@@ -267,7 +298,9 @@ async def list_repo_ops(request, env):
         out["commit"] = lex_to_json(result["commit"])
     elif ops:
         out["cursor"] = f"{ops[-1]['rev']}/{ops[-1]['idx']}"
-    return json_response(out)
+    # A page without a commit has nothing to MAC: its ops are checked once the last
+    # page's commit is compared with the syncer's running set hash.
+    return mac_response(json_response(out), COMMIT_MAC_TYPE, result["mac"])
 
 
 @router.get(X + "listBlobs")
@@ -345,23 +378,33 @@ async def get_delegation_token(request, env):
 
 @router.post(X + "getSpaceCredential")
 async def get_space_credential(request, env):
-    delegation = await verify_delegation(request, env)
+    """Unauthenticated: the body carries the credential key and, when the space needs
+    them, a delegation token (the user) and a client attestation (the app)."""
     body = await json_body(request)
-    space = body.get("space")
-    if delegation["space"] != space:
-        raise XrpcError("InvalidDelegationToken", "Delegation token subject does not match requested space")
+    space, credential_kid = body.get("space"), body.get("credentialKid")
     ref = parse_space(space)
+    if p256_did_key_point(credential_kid) is None:
+        raise invalid("credentialKid must be a P-256 did:key")
+    user_did = None
+    if body.get("delegationToken") is not None:
+        delegation = await verify_delegation(env, body["delegationToken"])
+        if delegation["space"] != space:
+            raise XrpcError("InvalidDelegationToken", "Delegation token subject does not match requested space")
+        user_did = delegation["user_did"]
     authority = await space_host(env, ref)
     client_id = None
-    if body.get("clientAttestation"):
+    if body.get("clientAttestation") is not None:
+        if not isinstance(body["clientAttestation"], str):
+            raise XrpcError("InvalidClientAttestation", "clientAttestation must be a string")
         client_id = await verify_client_attestation(env, body["clientAttestation"], space_host_aud(ref.did))
     status = await authority.space_status(space=space)
+    # A syncer that missed notifySpaceDeleted learns it here, token or not.
     if status["deleted"]:
         raise XrpcError("SpaceDeleted", "Space has been deleted")
     if not status["config"]:
         raise XrpcError("SpaceNotFound", "Space not found")
-    await authorize_credential(env, authority, dict(status["config"]), delegation["user_did"], client_id)
-    credential = await authority.space_sign_token(token_type="credential", sub=space, key_id=delegation["key_id"])
+    await authorize_credential(env, authority, dict(status["config"]), user_did, client_id)
+    credential = await authority.space_sign_token(token_type="credential", sub=space, key_id=credential_kid)
     return json_response({"credential": credential})
 
 
@@ -385,10 +428,10 @@ async def list_repos(request, env):
 async def notify_write_route(request, env):
     service = await verify_service_auth(request, env, "com.atproto.space.notifyWrite")
     body = json_to_lex(await json_body(request))
-    space, repo, repo_rev, digest = body.get("space"), body.get("repo"), body.get("repoRev"), body.get("hash")
+    space, repo, repo_rev, digest = body.get("space"), body.get("repo"), body.get("repoRev"), body.get("data")
     ref = parse_space(space)
     if not isinstance(repo_rev, str) or not isinstance(digest, bytes):
-        raise invalid("repoRev and hash are required")
+        raise invalid("repoRev and data are required")
     # iss is the signer, so a PDS cannot notify on another account's behalf.
     if service["iss"] != repo:
         raise XrpcError("Forbidden", "notifyWrite iss does not match claimed writer", 403)
@@ -485,9 +528,9 @@ async def delete_space(request, env):
     check_space_scope(auth, ref, manage="delete")
     assert_owner(auth, ref)
     account = env.account(auth["do_id"])
-    services = await account.space_delete(space=str(ref))
-    if services:
-        await notify_space_deleted(env, account, str(ref), services)
+    recipients = await account.space_delete(space=str(ref))
+    if recipients:
+        await notify_space_deleted(env, account, str(ref), recipients)
     return ok()
 
 
@@ -495,7 +538,7 @@ async def delete_space(request, env):
 async def get_space(request, env):
     space = request.query("space")
     ref = parse_space(space)
-    if auth_scheme(request) == "atproto-space":
+    if is_space_credential(request):
         assert_credential_space(await verify_space_credential(request, env), space)
     else:
         auth = await authenticate(request, env, "GET")

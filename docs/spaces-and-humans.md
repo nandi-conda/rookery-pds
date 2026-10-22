@@ -2,10 +2,10 @@
 
 ## Spaces (alpha)
 
-Roost implements atproto permissioned spaces as specified in
-[bluesky-social/atproto#5187](https://github.com/bluesky-social/atproto/pull/5187)
-(branch `permissioned-data`, still a draft upstream, so expect changes).
-`describeServer` advertises `spacesAlpha: true`.
+Roost implements atproto permissioned spaces as of the October 22, 2026 alpha
+release ([proposals#125](https://github.com/bluesky-social/proposals/pull/125),
+reference implementation `permissioned-data` at ac0c9f1; upstream is still alpha,
+so expect changes). `describeServer` advertises `spacesAlpha: true`.
 
 A space is `at://<authority>/space/<type>/<skey>`. Each member keeps their own
 repo in the space on their own PDS. Roost plays all three PDS roles:
@@ -19,14 +19,30 @@ repo in the space on their own PDS. Roost plays all three PDS roles:
   `notifyCredentialRevoked` from space authorities.
 
 Reads of another member's repo need a space credential: the app gets a
-delegation token from the user's PDS, exchanges it at the space host
-(`getSpaceCredential`, signed with an RFC 9421 HTTP message signature by a
-P-256 key), then calls with `Authorization: Atproto-Space <credential>`,
-`Atproto-Space-Audience: <repo or authority DID>` and a signature by the same key.
+delegation token from the user's PDS (audience `<authority>#atproto_pds`) and
+posts it to the space host's `getSpaceCredential` with the P-256 did:key the
+credential should bind (`credentialKid`). A space with a public read policy
+issues credentials without a token. The app then calls with
+`Authorization: Atproto-Space-Credential <credential>`,
+`Atproto-Space-Audience: <repo or authority DID>` and an RFC 9421 signature
+(label and `tag` `atproto-space-credential`) by that key.
 OAuth clients need `space:` scopes; WelcomeMat and password sessions have full access.
 
+Commits carry no signature (`{ver, repo, space, rev, data}`, `data` being the
+sha256 of the repo's LtHash). With a space credential, getRecord,
+getLatestCommit, getRepo and listRepoOps require an `Atproto-Space-Want-Mac`
+header holding an ephemeral P-256 key share; Roost answers with an HMAC in
+`Atproto-Space-Mac`, keyed by the secret agreed with the account's
+`#atproto_kem` key. Every account gets that key: new accounts in their PLC
+genesis operation, older ones on their next identity sync
+(`pixi run sync-identities`). getRepo returns a STAR archive.
+
 Code: `src/roost/spaces/`. Space data lives in each account's Account Durable
-Object (`space_*` tables); revoked credentials live in D1.
+Object (`space_*` tables, including the KEM key); revoked credentials live in D1.
+Notices owed to other services (notifyWrite to a remote space host,
+notifySpaceDeleted to registered syncers) wait in the sender's Durable Object and
+are retried on that account's later space activity, since Roost has no
+background scheduler.
 
 Not implemented yet: lexicon validation of space records (writes report
 `validationStatus: "unknown"`) and the upstream rate limits.

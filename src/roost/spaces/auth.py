@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""Space request authentication: space credentials (`Atproto-Space` scheme plus
-an HTTP message signature), delegation tokens (exchanged for credentials) and
-inter-service auth JWTs (notifications between PDSes)."""
+"""Space request authentication: space credentials (`Atproto-Space-Credential`
+scheme plus an HTTP message signature), delegation tokens (presented in a
+getSpaceCredential body) and inter-service auth JWTs (notifications between PDSes)."""
 
 import re
 import time
@@ -16,12 +16,13 @@ from ..keys import verify_did_key_signature
 from ..oauth import store
 from ..oauth.client_metadata import ClientMetadataError, fetch_client_metadata
 from ..syntax import is_valid_did
-from .httpsig import SpaceSignatureError, verify_space_signature
+from .httpsig import SpaceSignatureError, verify_credential_sig
 from .identity import IdentityError, signing_key
 from .refs import InvalidSpaceRef, SpaceRef, space_host_aud
 from .tokens import SpaceTokenError, parse_token, verify_token
 
 AUTH_SCHEME_RE = re.compile(r"^(\S+)\s+(\S+)$")
+CREDENTIAL_SCHEME = "Atproto-Space-Credential"
 _revocations_ensured = False
 
 
@@ -49,6 +50,15 @@ def auth_scheme(request) -> str | None:
     return match.group(1).lower() if match else None
 
 
+def is_space_credential(request) -> bool:
+    """Whether a request presents a space credential. The October 1 alpha scheme
+    (`Atproto-Space`) is refused outright, as the reference PDS does."""
+    scheme = auth_scheme(request)
+    if scheme == "atproto-space":
+        raise XrpcError("InvalidToken", "Unsupported authorization type: Atproto-Space", 400)
+    return scheme == CREDENTIAL_SCHEME.lower()
+
+
 def _token(request, scheme: str) -> str:
     match = AUTH_SCHEME_RE.match(request.header("authorization") or "")
     if not match or match.group(1).lower() != scheme.lower():
@@ -64,14 +74,9 @@ def _space_from_sub(sub: str) -> SpaceRef:
 
 
 async def _verify(env, token_type: str, jwt: str) -> dict:
-    async def get_key(iss: str, kid: str | None, force_refresh: bool) -> str:
-        if not kid:
-            raise SpaceTokenError('missing token "kid"')
-        key_id = kid.removeprefix("#")
-        if key_id not in ("atproto", "atproto_space"):
-            raise SpaceTokenError(f'unsupported space token "kid": {kid}')
+    async def get_key(iss: str, force_refresh: bool) -> str:
         try:
-            return await signing_key(env, iss, key_id, force_refresh)
+            return await signing_key(env, iss, force_refresh)
         except IdentityError as exc:
             raise SpaceTokenError(str(exc), "BadJwtIss") from exc
 
@@ -83,8 +88,10 @@ async def _verify(env, token_type: str, jwt: str) -> dict:
 
 
 async def verify_space_credential(request, env) -> dict:
-    """{type: "space_credential", iss, audience, space, jti} for an `Atproto-Space` request."""
-    payload = await _verify(env, "credential", _token(request, "Atproto-Space"))
+    """{type: "space_credential", iss, audience, space} for an `Atproto-Space-Credential` request."""
+    if not is_space_credential(request):
+        raise auth_required("missing space credential", "MissingJwt")
+    payload = await _verify(env, "credential", _token(request, CREDENTIAL_SCHEME))
     space = _space_from_sub(payload["sub"])
     if payload["iss"] != space.did:
         raise auth_required("space credential issuer is not the space authority", "BadJwtIss")
@@ -92,7 +99,7 @@ async def verify_space_credential(request, env) -> dict:
     if not is_valid_did(audience):
         raise auth_required("missing or invalid space audience DID", "BadSpaceSignature")
     try:
-        verify_space_signature(request.headers, payload["cnf"]["kid"])
+        verify_credential_sig(request.headers, payload["cnf"]["kid"])
     except SpaceSignatureError as exc:
         raise auth_required(str(exc), exc.code) from exc
     await ensure_revocations(env)
@@ -104,24 +111,25 @@ async def verify_space_credential(request, env) -> dict:
     return {"type": "space_credential", "iss": space.did, "audience": audience, "space": str(space)}
 
 
-async def verify_delegation(request, env) -> dict:
-    """{user_did, space, key_id} for a getSpaceCredential call."""
-    token = _token(request, "Bearer")
-    payload = await _verify(env, "delegation", token)
-    space = _space_from_sub(payload["sub"])
-    if payload.get("aud") != space_host_aud(space.did):
-        raise auth_required("delegation token audience does not match the space authority", "BadJwtAudience")
-    if not is_valid_did(payload["iss"]):
-        raise auth_required("delegation token issuer is not a DID", "BadJwtIss")
+async def verify_delegation(env, token) -> dict:
+    """{user_did, space} for a delegation token in a getSpaceCredential body. The token
+    is not the request's authorization, so a bad one is an invalid request (400)."""
     try:
-        key_id = verify_space_signature(request.headers)
-    except SpaceSignatureError as exc:
-        raise auth_required(str(exc), exc.code) from exc
-    await store.init_oauth(env.db)
-    jti_hash = sha256_b64url(f"space-delegation:{payload['iss']}:{payload['jti']}")
-    if not await store.insert_dpop_jti(env.db, jti_hash, int(payload["exp"]) + 5, int(time.time())):
-        raise auth_required("delegation token has already been used", "JwtReplayed")
-    return {"user_did": payload["iss"], "space": str(space), "key_id": key_id}
+        if not isinstance(token, str):
+            raise auth_required("delegationToken must be a string", "BadJwt")
+        payload = await _verify(env, "delegation", token)
+        space = _space_from_sub(payload["sub"])
+        if payload.get("aud") != space_host_aud(space.did):
+            raise auth_required("delegation token audience does not match the space authority", "BadJwtAudience")
+        if not is_valid_did(payload["iss"]):
+            raise auth_required("delegation token issuer is not a DID", "BadJwtIss")
+        await store.init_oauth(env.db)
+        jti_hash = sha256_b64url(f"space-delegation:{payload['iss']}:{payload['jti']}")
+        if not await store.insert_dpop_jti(env.db, jti_hash, int(payload["exp"]) + 5, int(time.time())):
+            raise auth_required("delegation token has already been used", "JwtReplayed")
+    except XrpcError as exc:
+        raise XrpcError("InvalidDelegationToken", exc.message) from exc
+    return {"user_did": payload["iss"], "space": str(space)}
 
 
 async def verify_service_auth(request, env, lxm: str) -> dict:

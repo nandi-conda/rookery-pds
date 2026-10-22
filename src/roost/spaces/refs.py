@@ -40,5 +40,6 @@ class SpaceRef:
 
 
 def space_host_aud(space_did: str) -> str:
-    """The audience a delegation token or client attestation names for a space authority."""
-    return f"{space_did}#atproto_space_host"
+    """The audience a delegation token, client attestation or notifyWrite names for a
+    space authority: its PDS, which is its space host."""
+    return f"{space_did}#atproto_pds"

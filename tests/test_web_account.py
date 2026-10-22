@@ -114,10 +114,15 @@ async def test_moving_the_handle_domain_keeps_old_handles_working(client, env):
     resolved = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": "dana.rookery.test"})
     assert resolved.status == 200 and resolved.json()["did"] == dana["did"]
 
+    # An account from before #atproto_kem keys gets one with its next identity sync.
+    do_id = (await env.db.first("SELECT do_id FROM accounts WHERE did = ?", dana["did"]))["do_id"]
+    env.account_do(do_id).account.spaces.sql.exec("DELETE FROM space_kem_key")
     synced = await client.post("/operator/identity/sync", json_body={"did": dana["did"], "handle": "dana.roost.test"},
                                headers={"authorization": f"Bearer {OPERATOR_TOKEN}"})
     assert synced.status == 200, synced.text
-    assert env.plc.log[dana["did"]][-1]["operation"]["alsoKnownAs"] == ["at://dana.roost.test"]
+    op = env.plc.log[dana["did"]][-1]["operation"]
+    assert op["alsoKnownAs"] == ["at://dana.roost.test"]
+    assert op["verificationMethods"]["atproto_kem"] == await env.account(do_id).space_kem_key()
     described = await client.get("/xrpc/com.atproto.repo.describeRepo", params={"repo": "dana.rookery.test"})
     assert described.status == 200 and described.json()["handle"] == "dana.roost.test"
     for handle in ("dana.roost.test", "Dana.rookery.test"):

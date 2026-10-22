@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""Resolving other parties' DIDs: their atproto signing keys (for space tokens,
-commits and service auth) and their service endpoints (for notifications)."""
+"""Resolving other parties' DIDs: their atproto signing keys (for space tokens and
+service auth) and their service endpoints (for notifications)."""
 
 import time
 from urllib.parse import quote
@@ -55,6 +55,7 @@ def _matches(entry_id, did: str, fragment: str) -> bool:
 
 
 def doc_signing_key(doc: dict, key_id: str = "atproto") -> str | None:
+    """A did:key from the doc's verification methods (#atproto, or #atproto_kem)."""
     for method in doc.get("verificationMethod") or []:
         if isinstance(method, dict) and _matches(method.get("id"), doc["id"], key_id):
             multibase = method.get("publicKeyMultibase")
@@ -81,27 +82,23 @@ async def local_account(env, did: str) -> dict | None:
         return None
 
 
-async def signing_key(env, did: str, key_id: str = "atproto", force_refresh: bool = False) -> str:
-    """The did:key an issuer signs with; an account hosted here is answered by its DO."""
-    if key_id == "atproto":
-        local = await local_account(env, did)
-        if local:
-            return await env.account(local["do_id"]).space_signing_key()
-    key = doc_signing_key(await resolve_did_doc(env, did, force_refresh), key_id)
+async def signing_key(env, did: str, force_refresh: bool = False) -> str:
+    """The did:key an issuer signs with (#atproto); an account hosted here is answered by its DO."""
+    local = await local_account(env, did)
+    if local:
+        return await env.account(local["do_id"]).space_signing_key()
+    key = doc_signing_key(await resolve_did_doc(env, did, force_refresh))
     if not key:
-        raise IdentityError(f"missing or bad key (#{key_id}) in did doc: {did}")
+        raise IdentityError(f"missing or bad key (#atproto) in did doc: {did}")
     return key
 
 
 async def service_endpoint(env, service: str) -> str | None:
     """Resolve a service identifier (a DID with an optional #fragment) to its endpoint.
-    A bare DID names an account, served by its #atproto_pds; #atproto_space_host
-    falls back to #atproto_pds when the DID publishes no dedicated entry."""
+    A bare DID names an account, served by its #atproto_pds (which is also its space host)."""
     did, _, fragment = service.partition("#")
     try:
         doc = await resolve_did_doc(env, did)
     except IdentityError:
         return None
-    if fragment == "atproto_space_host":
-        return doc_service_endpoint(doc, "atproto_space_host") or doc_service_endpoint(doc, "atproto_pds")
     return doc_service_endpoint(doc, fragment or "atproto_pds")

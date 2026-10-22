@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""secp256k1 keypairs for repo commits, service auth and PLC operations.
+"""secp256k1 keypairs for repo commits, service auth and PLC operations, and
+P-256 keypairs for space request signatures and space KEM keys.
 
 Signatures match @atproto/crypto: ECDSA over SHA-256, compact r||s, low-S.
 """
@@ -49,6 +50,56 @@ class Secp256k1Keypair:
         if s > SECP256K1_ORDER // 2:
             s = SECP256K1_ORDER - s
         return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
+class P256Keypair:
+    """Signs space requests (clients and tests) and, as an account's #atproto_kem
+    key, agrees shared secrets with syncers (ECDH)."""
+
+    def __init__(self, private_key=None):
+        self._key = private_key or lib().ec.generate_private_key(lib().ec.SECP256R1())
+
+    @classmethod
+    def import_hex(cls, hex_key: str) -> "P256Keypair":
+        return cls(lib().ec.derive_private_key(int(hex_key, 16), lib().ec.SECP256R1()))
+
+    def export_hex(self) -> str:
+        return self._key.private_numbers().private_value.to_bytes(32, "big").hex()
+
+    def public_bytes(self, compressed: bool = True) -> bytes:
+        c = lib()
+        point = c.serialization.PublicFormat.CompressedPoint if compressed else c.serialization.PublicFormat.UncompressedPoint
+        return self._key.public_key().public_bytes(c.serialization.Encoding.X962, point)
+
+    def did(self) -> str:
+        return "did:key:z" + b58_encode(P256_DID_PREFIX + self.public_bytes())
+
+    def sign(self, message: bytes) -> bytes:
+        r, s = lib().decode_dss_signature(self._key.sign(message, lib().ec.ECDSA(lib().hashes.SHA256())))
+        return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+    def ecdh(self, public_point: bytes) -> bytes:
+        """The x-coordinate of the shared point with a SEC1-encoded P-256 public key."""
+        public = lib().ec.EllipticCurvePublicKey.from_encoded_point(lib().ec.SECP256R1(), public_point)
+        return self._key.exchange(lib().ec.ECDH(), public)
+
+
+def p256_did_key_point(did_key) -> bytes | None:
+    """The uncompressed point (0x04 || x || y) of a P-256 did:key, or None."""
+    if not isinstance(did_key, str) or not did_key.startswith("did:key:z"):
+        return None
+    try:
+        raw = b58_decode(did_key[len("did:key:z"):])
+    except Exception:
+        return None
+    if not raw.startswith(P256_DID_PREFIX):
+        return None
+    c = lib()
+    try:
+        public = c.ec.EllipticCurvePublicKey.from_encoded_point(c.ec.SECP256R1(), raw[2:])
+    except ValueError:
+        return None
+    return public.public_bytes(c.serialization.Encoding.X962, c.serialization.PublicFormat.UncompressedPoint)
 
 
 def verify_did_key_signature(did_key: str, message: bytes, signature: bytes) -> bool:

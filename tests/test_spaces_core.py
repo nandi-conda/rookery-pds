@@ -3,14 +3,17 @@
 
 """Spaces primitives, checked against BLAKE3's official vectors and against
 values computed with the reference implementation's own code paths
-(@atproto/space lthash.ts / repo-commit.ts on @noble/hashes)."""
+(@atproto/space lthash.ts, kem.ts, mac.ts and star.ts)."""
 
 import pytest
 
-from roost.keys import Secp256k1Keypair
+from roost import cbor
+from roost.cbor import CID, _varint
+from roost.keys import P256Keypair, Secp256k1Keypair
+from roost.spaces import mac, star
 from roost.spaces.blake3 import blake3
-from roost.spaces.commit import compute_mac, encode_ctx, sign_commit, verify_commit
-from roost.spaces.httpsig import P256Keypair, SpaceSignatureError, create_space_sig_headers, verify_space_signature
+from roost.spaces.commit import build_commit
+from roost.spaces.httpsig import SpaceSignatureError, create_space_sig_headers, verify_credential_sig
 from roost.spaces.lthash import LtHash
 from roost.spaces.refs import InvalidSpaceRef, SpaceRef
 from roost.spaces.scopes import parse_space_scope, space_scope_denial
@@ -51,27 +54,75 @@ def test_lthash_set_semantics():
         LtHash(b"\0" * 32)
 
 
-def test_commit_ctx_and_mac_match_reference():
-    ikm = bytes(range(32))
-    ctx = encode_ctx("at://did:plc:abc/space/com.example.forum/self", "did:plc:xyz", "3l3l3l3l3l3l2", ikm)
-    assert ctx.hex() == (
-        "617470726f746f2d73706163652d7631002d61743a2f2f6469643a706c633a6162632f73706163652f636f6d2e6578616d"
-        "706c652e666f72756d2f73656c66000b6469643a706c633a78797a000d336c336c336c336c336c336c320020000102030405"
-        "060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-    )
-    h = LtHash().add("app.bsky.feed.post/3k2a/bafyreia").add("x.y.z/abc/bafyreib")
-    h.remove("app.bsky.feed.post/3k2a/bafyreia").add("q.r.s/1/bafyreic")
-    assert compute_mac(ikm, ctx, h.digest()).hex() == "bab867eba739a36faf4e8ab9cfdf3a67e90b6a7b4162c296d329da982f64c34e"
+# Computed with @atproto/space and @atproto/crypto 0.0.0-spaces-alpha-20261022141228:
+# P256Keypair.import of the keys below, decapsulate(author, syncer.did()), then
+# computeCommitMac / computeRecordMac / formatWantMacHeader / formatMacHeader / serializeRepo.
+AUTHOR_KEM, SYNCER_KEY = P256Keypair.import_hex("11" * 32), P256Keypair.import_hex("22" * 32)
+SPACE = "at://did:plc:abc/space/com.example.forum/self"
+COMMIT = {"ver": 1, "repo": "did:plc:xyz", "space": SPACE, "rev": "3l3l3l3l3l3l2", "data": bytes([7]) * 32}
+SECRET = "76bccf1264f5f7f5b7df0b78b6c1037f2e22fb513288207ad2dede881710d4c3"
+STAR = (
+    "2a6c01009e01a6637265766d336c336c336c336c336c336c326376657201646461746158200707070707070707070707070707070707070"
+    "707070707070707070707070707647265706f6b6469643a706c633a78797a65247479706572617470726f746f2d73706163652d7265706f"
+    "657370616365782d61743a2f2f6469643a706c633a6162632f73706163652f636f6d2e6578616d706c652e666f72756d2f73656c660961"
+    "2e622e632e642f7912a261740265247479706567612e622e632e6407612e622e632f7810a261740165247479706565612e622e63"
+)
 
 
-def test_commit_sign_verify():
-    key = Secp256k1Keypair.create()
+def test_kem_and_macs_match_reference():
+    assert AUTHOR_KEM.did() == "did:key:zDnaeQa8zprPhHA7Yuxcgc2Uh6XNQgaKjmFZE4EaA9fk5svmJ"
+    secret = mac.decapsulate(AUTHOR_KEM, SYNCER_KEY.did())
+    assert secret.hex() == SECRET
+    key_share, syncer_secret = mac.encapsulate(AUTHOR_KEM.did())
+    assert mac.decapsulate(AUTHOR_KEM, key_share) == syncer_secret
+    assert mac.compute_commit_mac(secret, COMMIT).hex() == (
+        "8ace15bde70a5021a2aebac34b01785f93034ad3beda3100b2faa402d7a4b266")
+    uri = f"{SPACE}/did:plc:xyz/a.b.c/x"
+    cid = CID.parse("bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm")
+    assert mac.compute_record_mac(secret, uri, cid.bytes).hex() == (
+        "6a94eb72227e4ec11ad02f109bfb7baf5891319cb57af072a2e24d5bdb536062")
+    assert mac.compute_commit_mac(secret, dict(COMMIT, repo="did:plc:other")) != mac.compute_commit_mac(secret, COMMIT)
+
+
+def test_mac_headers_match_reference():
+    want = mac.format_want_mac_header(mac.RECORD_MAC_TYPE, SYNCER_KEY.did())
+    assert want == f'type="atproto-space-record", ver=1, key_share="{SYNCER_KEY.did()}"'
+    assert mac.parse_want_mac_header(want, mac.RECORD_MAC_TYPE) == SYNCER_KEY.did()
+    header = mac.format_mac_header(mac.COMMIT_MAC_TYPE, bytes([1]) * 32)
+    assert header == 'type="atproto-space-repo", ver=1, mac=:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=:'
+    assert mac.parse_mac_header(header.rstrip(":=") + ":", mac.COMMIT_MAC_TYPE) == bytes([1]) * 32
+    for bad in (None, "nonsense(", want, want.replace("ver=1", "ver=2"),
+                want.replace('"atproto-space-record"', "atproto-space-repo"),
+                want.replace("key_share=", "other=")):
+        with pytest.raises(mac.SpaceMacError):
+            mac.parse_want_mac_header(bad, mac.COMMIT_MAC_TYPE if bad == want else mac.RECORD_MAC_TYPE)
+    with pytest.raises(mac.SpaceMacError):
+        mac.decapsulate(AUTHOR_KEM, Secp256k1Keypair.create().did())
+
+
+def test_star_matches_reference_and_rejects_bad_archives():
+    records = [("a.b.c.d/y", cbor.encode({"$type": "a.b.c.d", "t": 2})),
+               ("a.b.c/x", cbor.encode({"$type": "a.b.c", "t": 1}))]
+    data = star.write_repo_star(COMMIT, records)
+    assert data.hex() == STAR
+    meta, pairs = star.read_repo_star(data)
+    assert meta == dict(COMMIT, **{"$type": "atproto-space-repo"}) and pairs == records
+    assert star.read_repo_star(star.write_repo_star(COMMIT, []))[1] == []
+    with pytest.raises(ValueError):
+        star.write_repo_star(COMMIT, list(reversed(records)))
+    for bad in (data[:-1], b"\0" + data[1:], data + data[-20:]):
+        with pytest.raises(star.StarParseError):
+            star.read_repo_star(bad)
+    oversized = star.STAR_MAGIC + data[4:].split(b"\x09a.b.c.d/y")[0] + b"\x01a" + _varint(star.MAX_RECORD_SIZE + 1)
+    with pytest.raises(star.StarParseError):
+        star.read_repo_star(oversized + b"\0" * (star.MAX_RECORD_SIZE + 1))
+
+
+def test_commit_data_is_the_lthash_digest():
     state = LtHash().add("a.b.c/1/bafy").state()
-    space = "at://did:plc:abc/space/com.example.forum/self"
-    commit = sign_commit(state, space, "did:plc:xyz", "3l3l3l3l3l3l2", key)
-    assert verify_commit(commit, space, "did:plc:xyz", "3l3l3l3l3l3l2", key.did())
-    assert not verify_commit(commit, space, "did:plc:other", "3l3l3l3l3l3l2", key.did())
-    assert not verify_commit(dict(commit, hash=b"\0" * 32), space, "did:plc:xyz", "3l3l3l3l3l3l2", key.did())
+    commit = build_commit(state, SPACE, "did:plc:xyz", "3l3l3l3l3l3l2")
+    assert commit == {"ver": 1, "repo": "did:plc:xyz", "space": SPACE, "rev": "3l3l3l3l3l3l2",
+                      "data": LtHash(state).digest()}
 
 
 def test_space_ref():
@@ -85,15 +136,22 @@ def test_space_ref():
 
 def test_http_signature_roundtrip():
     key = P256Keypair()
-    headers = create_space_sig_headers(key, "Bearer abc.def.ghi")
-    assert verify_space_signature(Headers(headers.items())) == key.did()
-    bound = create_space_sig_headers(key, "Atproto-Space x.y.z", audience="did:plc:aud")
-    assert verify_space_signature(Headers(bound.items()), key.did()) == key.did()
-    tampered = dict(bound, **{"atproto-space-audience": "did:plc:other"})
+    headers = create_space_sig_headers(key, "Atproto-Space-Credential x.y.z", "did:plc:aud")
+    assert headers["signature-input"] == (
+        'atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"')
+    verify_credential_sig(Headers(headers.items()), key.did())
+    unpadded = dict(headers, signature=headers["signature"].rstrip(":=") + ":")
+    verify_credential_sig(Headers(unpadded.items()), key.did())
+    # The scheme is matched case-insensitively, but the signature covers the bytes sent.
+    lowered = dict(headers, authorization="atproto-space-credential x.y.z")
     with pytest.raises(SpaceSignatureError):
-        verify_space_signature(Headers(tampered.items()), key.did())
-    with pytest.raises(SpaceSignatureError):
-        verify_space_signature(Headers(bound.items()), P256Keypair().did())
+        verify_credential_sig(Headers(lowered.items()), key.did())
+    tampered = dict(headers, **{"atproto-space-audience": "did:plc:other"})
+    untagged = dict(headers, **{"signature-input": headers["signature-input"].split(";")[0]})
+    old_label = {k: v.replace("atproto-space-credential=", "atproto-space=") for k, v in headers.items()}
+    for bad, signer in ((tampered, key), (untagged, key), (old_label, key), (headers, P256Keypair())):
+        with pytest.raises(SpaceSignatureError):
+            verify_credential_sig(Headers(bad.items()), signer.did())
 
 
 def test_space_scopes():

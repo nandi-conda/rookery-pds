@@ -58,6 +58,7 @@ async def test_registered_syncer_receives_write_notifications(client, env):
     url, headers, notice = received[0]
     assert url == "https://syncer.test/xrpc/com.atproto.space.notifyWrite"
     assert notice["space"] == space and notice["repo"] == bob["did"] and notice["spaceRev"]
+    assert set(notice["data"]) == {"$bytes"} and "hash" not in notice
     assert headers["Authorization"].startswith("Bearer ")
 
     await call(client, "POST", X + "unregisterNotify", headers=signed(key, credential, alice["did"]),
@@ -75,10 +76,13 @@ async def test_remote_writer_notifies_this_space_host(client, env):
     space = created["uri"]
     remote_key, remote_did = Secp256k1Keypair.create(), "did:plc:remotewriter0000000000"
     publish_plc(env, remote_did, remote_key, "https://elsewhere.test")
-    token = service_jwt(remote_key, remote_did, f"{alice['did']}#atproto_space_host", "com.atproto.space.notifyWrite")
+    token = service_jwt(remote_key, remote_did, f"{alice['did']}#atproto_pds", "com.atproto.space.notifyWrite")
     notice = {"space": space, "repo": remote_did, "repoRev": "3m2xyzabcde22",
-              "hash": {"$bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"}}
+              "data": {"$bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"}}
     await call(client, "POST", X + "notifyWrite", headers={"authorization": f"Bearer {token}"}, **notice)
+    # The dedicated space host entry is gone from DID documents, and from audiences.
+    retired = service_jwt(remote_key, remote_did, f"{alice['did']}#atproto_space_host", "com.atproto.space.notifyWrite")
+    await call(client, "POST", X + "notifyWrite", headers={"authorization": f"Bearer {retired}"}, expect=403, **notice)
 
     forged = service_jwt(Secp256k1Keypair.create(), remote_did, alice["did"], "com.atproto.space.notifyWrite")
     await call(client, "POST", X + "notifyWrite", headers={"authorization": f"Bearer {forged}"}, expect=401, **notice)
@@ -90,6 +94,7 @@ async def test_remote_writer_notifies_this_space_host(client, env):
     credential = (await credential_for(client, alice, space, key))["credential"]
     repos = await call(client, "GET", f"{X}listRepos?space={space}", headers=signed(key, credential, alice["did"]))
     assert [repo["did"] for repo in repos["repos"]] == [remote_did]
+    assert repos["repos"][0]["data"] == notice["data"]
 
 
 async def test_writes_to_a_remote_space_notify_its_host_and_retry(client, env):
@@ -106,7 +111,7 @@ async def test_writes_to_a_remote_space_notify_its_host_and_retry(client, env):
 
     await call(client, "POST", X + "createRecord", bob, space=space, repo=bob["did"], collection=POST,
                rkey="1", record={"text": "first"})
-    assert len(attempts) == 1
+    assert len(attempts) == 1 and attempts[0]["data"]["$bytes"]
     do = env.account_do((await env.db.first("SELECT do_id FROM accounts WHERE did = ?", bob["did"]))["do_id"]).account
     queued = do.spaces.sql.exec("SELECT * FROM space_notification_retry")
     assert len(queued) == 1 and queued[0]["repo_rev"] == attempts[0]["repoRev"]
@@ -117,6 +122,54 @@ async def test_writes_to_a_remote_space_notify_its_host_and_retry(client, env):
     # The new write is delivered and clears the older pending notice for the same space.
     assert len(attempts) == 2
     assert do.spaces.sql.exec("SELECT * FROM space_notification_retry") == []
+
+
+async def test_space_deletion_reaches_every_registered_syncer(client, env):
+    alice, bob, carol, space = await setup(client)
+    statuses = {"https://one.test": [503, 200], "https://two.test": [400]}
+    received = []
+
+    def syncer(base):
+        async def handle(method, url, headers, body):
+            if url.endswith("/.well-known/did.json"):
+                host = base.removeprefix("https://")
+                doc = {"id": f"did:web:{host}",
+                       "service": [{"id": "#syncer", "type": "X", "serviceEndpoint": base}]}
+                return HttpResponse(200, json.dumps(doc).encode())
+            received.append((base, json.loads(body)))
+            return HttpResponse(statuses[base].pop(0), b"")
+        return handle
+
+    key = P256Keypair()
+    credential = (await credential_for(client, bob, space, key))["credential"]
+    for base in statuses:
+        env.http.routes[base + "/"] = syncer(base)
+        await call(client, "POST", X + "registerNotify", headers=signed(key, credential, alice["did"]),
+                   space=space, service=f"did:web:{base.removeprefix('https://')}#syncer")
+
+    await call(client, "POST", S + "deleteSpace", alice, space=space)
+    assert sorted(base for base, _ in received) == ["https://one.test", "https://two.test"]
+    assert all(notice == {"space": space} for _, notice in received)
+    do = env.account_do((await env.db.first("SELECT do_id FROM accounts WHERE did = ?", alice["did"]))["do_id"]).account
+    # The transient failure waits for a retry; the refusal does not.
+    pending = do.spaces.sql.exec("SELECT * FROM space_deleted_notification_retry")
+    assert [row["service_did"] for row in pending] == ["did:web:one.test#syncer"]
+
+    do.spaces.sql.exec("UPDATE space_deleted_notification_retry SET retry_at = 0")
+    other = f"at://{alice['did']}/space/{FORUM}/other"
+    await call(client, "POST", S + "createSpace", alice, spaceType=FORUM, skey="other", readPolicy=PUBLIC,
+               writePolicy=PUBLIC, appAccess={"$type": "com.atproto.simplespace.defs#open"})
+    await call(client, "POST", X + "createRecord", alice, space=other, repo=alice["did"], collection=POST,
+               rkey="1", record={"text": "later activity"})
+    assert [base for base, _ in received].count("https://one.test") == 2
+    assert do.spaces.sql.exec("SELECT * FROM space_deleted_notification_retry") == []
+
+    # A notice still owed when the space is recreated is dropped, and expired ones lapse.
+    do.spaces.queue_deletion_notice(space, "did:web:one.test#syncer", 1, 0, 2**53)
+    do.spaces.queue_deletion_notice(other, "did:web:two.test#syncer", 1, 0, 1)
+    await call(client, "POST", S + "createSpace", alice, spaceType=FORUM, skey="general", readPolicy=PUBLIC,
+               writePolicy=PUBLIC, appAccess={"$type": "com.atproto.simplespace.defs#open"})
+    assert do.spaces.due_deletion_notices(10**15) == []
 
 
 async def test_human_password_consent_on_oauth_authorize(client, env):

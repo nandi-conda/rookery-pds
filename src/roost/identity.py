@@ -18,13 +18,18 @@ def _agentbus_service(endpoint: str | None) -> dict:
     return {"agentbus": {"type": "AgentBusEndpoint", "endpoint": endpoint}} if endpoint else {}
 
 
+def _verification_methods(signing_did: str, kem_did: str | None) -> dict:
+    """#atproto signs; #atproto_kem keys the MACs on the account's space repos."""
+    return {"atproto": signing_did, **({"atproto_kem": kem_did} if kem_did else {})}
+
+
 def did_credentials(handle: str, pds_endpoint: str, signing_did: str, rotation_did: str,
-                    agentbus_endpoint: str | None = None) -> dict:
+                    agentbus_endpoint: str | None = None, kem_did: str | None = None) -> dict:
     """The identity fields a roost account's DID document should carry
     (com.atproto.identity.getRecommendedDidCredentials, and the genesis op)."""
     return {
         "rotationKeys": [rotation_did],
-        "verificationMethods": {"atproto": signing_did},
+        "verificationMethods": _verification_methods(signing_did, kem_did),
         "alsoKnownAs": [f"at://{handle}"],
         "services": {
             "atproto_pds": {"type": "AtprotoPersonalDataServer", "endpoint": pds_endpoint},
@@ -34,8 +39,10 @@ def did_credentials(handle: str, pds_endpoint: str, signing_did: str, rotation_d
 
 
 def build_unsigned_genesis_op(handle: str, hostname: str, signing: Secp256k1Keypair,
-                              rotation: Secp256k1Keypair, agentbus_endpoint: str | None = None) -> dict:
-    credentials = did_credentials(handle, f"https://{hostname}", signing.did(), rotation.did(), agentbus_endpoint)
+                              rotation: Secp256k1Keypair, agentbus_endpoint: str | None = None,
+                              kem_did: str | None = None) -> dict:
+    credentials = did_credentials(handle, f"https://{hostname}", signing.did(), rotation.did(), agentbus_endpoint,
+                                  kem_did)
     return {"type": "plc_operation", **credentials, "prev": None}
 
 
@@ -55,19 +62,19 @@ async def _post_op(http, plc_url: str, did: str, op: dict) -> None:
 
 
 async def create_plc_did(http, handle: str, hostname: str, signing: Secp256k1Keypair, rotation: Secp256k1Keypair,
-                         plc_url: str, agentbus_endpoint: str | None = None) -> str:
+                         plc_url: str, agentbus_endpoint: str | None = None, kem_did: str | None = None) -> str:
     signed, did = sign_genesis_op(
-        build_unsigned_genesis_op(handle, hostname, signing, rotation, agentbus_endpoint), rotation
+        build_unsigned_genesis_op(handle, hostname, signing, rotation, agentbus_endpoint, kem_did), rotation
     )
     await _post_op(http, plc_url, did, signed)
     return did
 
 
 async def update_plc_handle(http, did: str, handle: str, pds_endpoint: str, sign_with_rotation_key,
-                            plc_url: str, agentbus_endpoint: str | None = None) -> None:
-    """Point a did:plc at `handle` and `pds_endpoint`, signed by the account's
-    rotation key (held by the Account DO, reached through `sign_with_rotation_key`,
-    which returns {key_did, sig})."""
+                            plc_url: str, agentbus_endpoint: str | None = None, kem_did: str | None = None) -> None:
+    """Point a did:plc at `handle` and `pds_endpoint` (and publish `kem_did` as
+    #atproto_kem), signed by the account's rotation key (held by the Account DO,
+    reached through `sign_with_rotation_key`, which returns {key_did, sig})."""
     log_response = await http.fetch(f"{plc_url}/{did}/log/audit")
     if not log_response.ok:
         raise PlcError(f"PLC directory audit log fetch failed ({log_response.status})")
@@ -79,6 +86,10 @@ async def update_plc_handle(http, did: str, handle: str, pds_endpoint: str, sign
     unsigned = dict(
         prev_op,
         alsoKnownAs=[f"at://{handle}"],
+        verificationMethods={
+            **prev_op.get("verificationMethods", {}),
+            **({"atproto_kem": kem_did} if kem_did else {}),
+        },
         services={
             **prev_op.get("services", {}),
             "atproto_pds": {"type": "AtprotoPersonalDataServer", "endpoint": pds_endpoint},

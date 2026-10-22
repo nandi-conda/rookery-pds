@@ -8,19 +8,25 @@ Every account holds its own repos in other spaces (space, space_repo,
 space_record, space_record_oplog, space_record_blob). An account that is a space
 authority also holds that space's governance: simplespace_config,
 simplespace_member, space_writer (the sequenced writer set) and
-space_credential_recipient (services registered for write notifications).
+space_credential_recipient (services registered for write notifications), and
+the deletion notices it still owes them. space_kem_key holds the account's
+#atproto_kem key, which keys the MACs on its space repos.
+
+space_writer.hash and space_notification_retry.hash hold what the wire now calls
+`data` (the sha256 of the LtHash state); the stored values are unchanged.
 """
 
 from datetime import datetime, timedelta, timezone
 
-from .. import car, cbor
+from .. import cbor
 from ..cbor import CID
 from ..errors import XrpcError
 from ..lexjson import lex_to_json
 from ..tid import next_tid
-from .commit import apply_op, sign_commit
+from .commit import apply_op, build_commit
 from .lthash import LtHash
 from .refs import SpaceRef
+from .star import write_repo_star
 
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS space (
@@ -106,6 +112,20 @@ SCHEMA = [
         retry_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL
       )""",
+    # notifySpaceDeleted owed to syncers registered when a space was deleted, until
+    # delivered or their registration expires.
+    """CREATE TABLE IF NOT EXISTS space_deleted_notification_retry (
+        space TEXT NOT NULL,
+        service_did TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        retry_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        PRIMARY KEY (space, service_did)
+      )""",
+    """CREATE TABLE IF NOT EXISTS space_kem_key (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        private_key_hex TEXT NOT NULL
+      )""",
 ]
 
 POLICIES = ("public", "member-list", "managing-app")
@@ -133,10 +153,6 @@ def find_blob_refs(value) -> list[tuple[str, str | None]]:
         for item in value:
             found.extend(find_blob_refs(item))
     return found
-
-
-def canonical_key(path: str) -> tuple[int, bytes]:
-    return (len(path.encode()), path.encode())
 
 
 class SpaceStore:
@@ -179,6 +195,9 @@ class SpaceStore:
     def create_space(self, uri: str, config: dict) -> None:
         if self.get_config(uri):
             raise XrpcError("SpaceAlreadyExists", "Space already exists")
+        # A recreated space is a new space: deletion notices still owed for the old
+        # one would purge the syncers' copies of the new one.
+        self.sql.exec("DELETE FROM space_deleted_notification_retry WHERE space = ?", uri)
         self.ensure_space(uri)
         self.sql.exec(
             """INSERT INTO simplespace_config (uri, read_policy, read_managing_app, write_policy,
@@ -195,10 +214,15 @@ class SpaceStore:
                 raise ValueError(column)
             self.sql.exec(f"UPDATE simplespace_config SET {column} = ? WHERE uri = ?", value, uri)
 
-    def delete_space(self, uri: str) -> list[str]:
-        """Tombstone a space this account governs and drop its data; the services to tell."""
-        if not self.get_space(uri):
+    def delete_space(self, uri: str) -> list[dict]:
+        """Tombstone a space this account governs and drop its own repo there; returns the
+        registered services owed a notice ({service_did, expires_at}). Members' repos stay
+        on their hosts. Deleting a deleted space does nothing."""
+        existing = self.get_space(uri)
+        if not existing:
             raise space_not_found()
+        if existing["deleted_at"]:
+            return []
         recipients = self.get_recipients(uri)
         self.sql.exec("UPDATE space SET deleted_at = ? WHERE uri = ?", now_iso(), uri)
         self.sql.exec(
@@ -208,7 +232,7 @@ class SpaceStore:
         for table in ("simplespace_member", "space_writer", "space_credential_recipient", "space_record",
                       "space_record_oplog", "space_repo", "space_notification_retry"):
             self.sql.exec(f"DELETE FROM {table} WHERE space = ?", uri)
-        return [row["service_did"] for row in recipients]
+        return [{"service_did": row["service_did"], "expires_at": row["expires_at"]} for row in recipients]
 
     def list_spaces(self, limit: int, cursor: str | None, space_type: str | None, authority: str | None) -> list[str]:
         query, params = "SELECT uri FROM space WHERE deleted_at IS NULL", []
@@ -284,7 +308,7 @@ class SpaceStore:
             query += " AND space_rev > ?"
             params.append(cursor)
         rows = self.sql.exec(query + " ORDER BY space_rev ASC LIMIT ?", *params, limit)
-        return [{"did": r["did"], "repoRev": r["repo_rev"], "hash": bytes(r["hash"]), "spaceRev": r["space_rev"]}
+        return [{"did": r["did"], "repoRev": r["repo_rev"], "data": bytes(r["hash"]), "spaceRev": r["space_rev"]}
                 for r in rows]
 
     # Notification recipients (space host)
@@ -307,7 +331,8 @@ class SpaceStore:
 
     def get_recipients(self, space: str) -> list[dict]:
         return self.sql.exec(
-            "SELECT service_did, service_endpoint FROM space_credential_recipient WHERE space = ? AND expires_at > ?",
+            """SELECT service_did, service_endpoint, expires_at FROM space_credential_recipient
+               WHERE space = ? AND expires_at > ?""",
             space, now_iso(),
         )
 
@@ -376,11 +401,12 @@ class SpaceStore:
         self.sql.exec("UPDATE space_repo SET set_hash = ?, rev = ? WHERE space = ?", state_bytes, rev, space)
         return {"rev": rev, "set_hash": state_bytes}
 
-    def signed_commit(self, space: str, author: str, keypair) -> dict | None:
+    def commit(self, space: str, repo: str) -> dict | None:
+        """The repo's current commit; None when it has never been written to."""
         state = self.get_repo_state(space)
         if not state or not state["set_hash"] or not state["rev"]:
             return None
-        return sign_commit(bytes(state["set_hash"]), space, author, state["rev"], keypair)
+        return build_commit(bytes(state["set_hash"]), space, repo, state["rev"])
 
     def get_record(self, uri: str) -> dict | None:
         row = self._one("SELECT cid, value FROM space_record WHERE uri = ?", uri)
@@ -427,19 +453,12 @@ class SpaceStore:
             out.append(op)
         return out
 
-    def export_car(self, space: str, commit: dict, exclude_values: bool) -> bytes:
-        """Two roots in order, the signed commit and the {collection/rkey: cid} index,
-        then record blocks in the index's canonical key order."""
-        rows = self.sql.exec("SELECT collection, rkey, cid, value FROM space_record WHERE space = ?", space)
-        by_path = {f"{row['collection']}/{row['rkey']}": row for row in rows}
-        paths = sorted(by_path, key=canonical_key)
-        index = {path: CID.parse(by_path[path]["cid"]) for path in paths}
-        commit_block, index_block = cbor.encode(commit), cbor.encode(index)
-        commit_cid, index_cid = CID.for_cbor(commit_block), CID.for_cbor(index_block)
-        blocks = [(commit_cid, commit_block), (index_cid, index_block)]
-        if not exclude_values:
-            blocks += [(index[path], bytes(by_path[path]["value"])) for path in paths]
-        return write_car_roots([commit_cid, index_cid], blocks)
+    def export_star(self, space: str, commit: dict) -> bytes:
+        """The repo as a STAR archive: the commit, then records in byte order of their path."""
+        rows = self.sql.exec("SELECT collection, rkey, value FROM space_record WHERE space = ?", space)
+        records = sorted(((f"{row['collection']}/{row['rkey']}", bytes(row["value"])) for row in rows),
+                         key=lambda record: record[0].encode())
+        return write_repo_star(commit, records)
 
     def list_blobs(self, space: str, limit: int, since: str | None, cursor: str | None) -> list[str]:
         query = """SELECT DISTINCT b.blob_cid FROM space_record_blob b JOIN space_record r ON r.uri = b.record_uri
@@ -480,14 +499,33 @@ class SpaceStore:
             "SELECT * FROM space_notification_retry WHERE retry_at <= ? ORDER BY retry_at LIMIT 5", now_ms
         )
 
+    # Deletion notices this account (as authority) owes syncers
 
-def write_car_roots(roots: list[CID], blocks) -> bytes:
-    header = cbor.encode({"version": 1, "roots": roots})
-    out = bytearray(car._varint(len(header)))
-    out += header
-    for cid, raw in blocks:
-        out += car._varint(len(cid.bytes) + len(raw))
-        out += cid.bytes
-        out += raw
-    return bytes(out)
+    def queue_deletion_notice(self, space: str, service_did: str, attempts: int, retry_at: int,
+                              expires_at: int) -> None:
+        self.sql.exec(
+            """INSERT INTO space_deleted_notification_retry (space, service_did, attempts, retry_at, expires_at)
+               VALUES (?, ?, ?, ?, ?) ON CONFLICT (space, service_did) DO UPDATE SET attempts = excluded.attempts,
+               retry_at = excluded.retry_at, expires_at = excluded.expires_at""",
+            space, service_did, attempts, retry_at, expires_at,
+        )
+
+    def clear_deletion_notice(self, space: str, service_did: str) -> None:
+        self.sql.exec("DELETE FROM space_deleted_notification_retry WHERE space = ? AND service_did = ?",
+                      space, service_did)
+
+    def due_deletion_notices(self, now_ms: int) -> list[dict]:
+        self.sql.exec("DELETE FROM space_deleted_notification_retry WHERE expires_at <= ?", now_ms)
+        return self.sql.exec(
+            "SELECT * FROM space_deleted_notification_retry WHERE retry_at <= ? ORDER BY retry_at LIMIT 5", now_ms
+        )
+
+    # The account's #atproto_kem key
+
+    def kem_key_hex(self) -> str | None:
+        row = self._one("SELECT private_key_hex FROM space_kem_key WHERE id = 1")
+        return row["private_key_hex"] if row else None
+
+    def set_kem_key_hex(self, private_key_hex: str) -> None:
+        self.sql.exec("INSERT OR IGNORE INTO space_kem_key (id, private_key_hex) VALUES (1, ?)", private_key_hex)
 

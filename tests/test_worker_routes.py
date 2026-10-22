@@ -165,7 +165,7 @@ async def test_apply_writes_create_then_delete_in_one_batch(client, enroll):
     assert got.json()["error"] == "RecordNotFound"
 
 
-async def test_account_management_reads(client, enroll):
+async def test_account_management_reads(client, env, enroll):
     rook = await enroll()
     await rook.create("app.bsky.feed.post", {"text": "one"}, "one")
     status = await rook.get("/xrpc/com.atproto.server.checkAccountStatus")
@@ -178,6 +178,10 @@ async def test_account_management_reads(client, enroll):
     assert creds["alsoKnownAs"] == [f"at://{rook.handle}"]
     assert creds["services"]["atproto_pds"]["endpoint"] == "https://rookery.test"
     assert creds["verificationMethods"]["atproto"].startswith("did:key:z")
+    # The #atproto_kem key for space repo MACs is published at account creation.
+    published = env.plc.log[rook.did][-1]["operation"]["verificationMethods"]
+    assert creds["verificationMethods"]["atproto_kem"] == published["atproto_kem"]
+    assert published["atproto_kem"].startswith("did:key:zDna")
     assert len(creds["rotationKeys"]) == 1
 
     assert (await rook.get("/xrpc/com.atproto.server.listAppPasswords")).json() == {"passwords": []}

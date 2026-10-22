@@ -118,12 +118,14 @@ class Account(SpaceMethods):
     # Provisioning and identity
 
     async def init_account(self, did, handle, signing_key_hex, signing_key_pub,
-                           rotation_key_hex, rotation_key_pub, jwk_thumbprint=None) -> dict:
+                           rotation_key_hex, rotation_key_pub, jwk_thumbprint=None, kem_key_hex=None) -> dict:
         self.storage.init_account_state(
             did=did, handle=handle, signing_key_hex=signing_key_hex,
             signing_key_pub=signing_key_pub, rotation_key_hex=rotation_key_hex,
             rotation_key_pub=rotation_key_pub, jwk_thumbprint=jwk_thumbprint,
         )
+        if kem_key_hex:
+            self.spaces.set_kem_key_hex(kem_key_hex)
         if Repo.load(self.storage) is None:
             Repo.create(self.storage, did, Secp256k1Keypair.import_hex(signing_key_hex))
         await self.sequencer.sequence_identity(did=did, handle=handle)

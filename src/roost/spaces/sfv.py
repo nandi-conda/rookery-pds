@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sol pbc
 
-"""The slice of RFC 8941 structured field values that HTTP message signatures need:
-dictionaries whose members are items or inner lists, with parameters."""
+"""The slice of RFC 8941 structured field values that HTTP message signatures and
+space MAC headers need: dictionaries whose members are items or inner lists, with
+parameters."""
 
 import base64
 import re
@@ -166,3 +167,8 @@ def _serialize_params(params: dict) -> str:
 def serialize_inner_list(items: list, params: dict) -> str:
     inner = " ".join(_serialize_bare(value) + _serialize_params(item_params) for value, item_params in items)
     return f"({inner}){_serialize_params(params)}"
+
+
+def serialize_dictionary(members: dict) -> str:
+    """A dictionary of bare items without parameters."""
+    return ", ".join(f"{name}={_serialize_bare(value)}" for name, value in members.items())

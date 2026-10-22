@@ -121,10 +121,16 @@ async def _check_managing_app(env, authority, config, user_did, access, client_i
         return False
 
 
-async def authorize_credential(env, authority, config: dict, user_did: str, client_id: str | None) -> None:
-    """The app perimeter first (decided from config alone), then the user's read access."""
+async def authorize_credential(env, authority, config: dict, user_did: str | None, client_id: str | None) -> None:
+    """The app perimeter first (decided from config alone), then the user's read access.
+    Without a delegation token (`user_did` None) only a public-read space issues a
+    credential; any other answers as though it does not exist."""
+    if user_did is None and config["read_policy"] != "public":
+        raise XrpcError("SpaceNotFound", "Space not found")
     if config["app_access_type"] == "allowList":
         if not client_id or client_id not in json.loads(config["app_allowed"]):
             raise XrpcError("AppNotAuthorized", "Application not authorized for this space")
+    if user_did is None:
+        return
     if not await authorize_user(env, authority, config, user_did, "read", client_id):
         raise XrpcError("UserNotAuthorized", "User not authorized for this space")

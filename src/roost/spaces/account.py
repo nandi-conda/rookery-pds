@@ -4,7 +4,8 @@
 """The Account Durable Object's space methods, mixed into Account.
 
 Space data for an account lives in that account's own DO, beside its public
-repo, and its signing key never leaves: commits and space tokens are signed here.
+repo, and its keys never leave: space tokens are signed and commit and record
+MACs computed here.
 """
 
 import time
@@ -12,11 +13,14 @@ import time
 from .. import cbor
 from ..cbor import CID
 from ..errors import XrpcError
+from ..keys import P256Keypair
 from ..lexjson import json_to_lex
 from ..syntax import is_valid_nsid, is_valid_record_key
 from ..tid import next_tid
 from .lthash import LtHash
+from .mac import SpaceMacError, compute_commit_mac, compute_record_mac, decapsulate
 from .refs import InvalidSpaceRef, SpaceRef
+from .star import MAX_RECORD_SIZE
 from .store import SpaceStore
 from .tokens import build_token
 
@@ -32,9 +36,10 @@ SPACE_METHODS = frozenset({
     "space_remove_member", "space_list_members", "space_get_member", "space_record_writer",
     "space_list_writers", "space_register_recipient", "space_unregister_recipient", "space_recipients",
     "space_apply_writes", "space_put_record", "space_get_record", "space_list_records", "space_list_repo_ops",
-    "space_latest_commit", "space_export_car", "space_list_blobs", "space_has_blob", "space_list_spaces",
-    "space_sign_token", "space_signing_key", "space_queue_notification", "space_clear_notification",
-    "space_due_notifications",
+    "space_latest_commit", "space_export_star", "space_list_blobs", "space_has_blob", "space_list_spaces",
+    "space_sign_token", "space_signing_key", "space_kem_key", "space_queue_notification",
+    "space_clear_notification", "space_due_notifications", "space_queue_deletion_notice",
+    "space_clear_deletion_notice", "space_due_deletion_notices",
 })
 
 
@@ -67,6 +72,8 @@ def prepare_write(did: str, ref: SpaceRef, action: str, collection, rkey, record
         value = cbor.encode(lex)
     except cbor.CborError as exc:
         raise XrpcError("InvalidRecord", f"Invalid record: {exc}") from exc
+    if len(value) > MAX_RECORD_SIZE:
+        raise XrpcError("InvalidRecord", f"Record exceeds {MAX_RECORD_SIZE} bytes")
     return dict(write, cid=str(CID.for_cbor(value)), value=value)
 
 
@@ -95,7 +102,26 @@ class SpaceMethods:
     def _commit_out(self, commit: dict | None) -> dict | None:
         if commit is None:
             return None
-        return {"rev": commit["rev"], "hash": LtHash(commit["set_hash"]).digest()}
+        return {"rev": commit["rev"], "data": LtHash(commit["set_hash"]).digest()}
+
+    def _mac_secret(self, key_share: str | None) -> bytes | None:
+        """The shared secret for a requested MAC (None when none was requested)."""
+        if key_share is None:
+            return None
+        private_key_hex = self.spaces.kem_key_hex()
+        if not private_key_hex:
+            raise XrpcError("BadSpaceMac", "Account has no #atproto_kem key yet")
+        try:
+            return decapsulate(P256Keypair.import_hex(private_key_hex), key_share)
+        except SpaceMacError as exc:
+            raise XrpcError("BadSpaceMac", str(exc)) from exc
+
+    def _commit_with_mac(self, space: str, key_share: str | None) -> dict | None:
+        commit = self.spaces.commit(space, self._did())
+        if commit is None:
+            return None
+        secret = self._mac_secret(key_share)
+        return {"commit": commit, "mac": compute_commit_mac(secret, commit) if secret else None}
 
     def _known_blob(self, cid: str) -> bool:
         return bool(self.storage.sql.exec("SELECT 1 AS x FROM blobs WHERE cid = ? LIMIT 1", cid))
@@ -115,7 +141,7 @@ class SpaceMethods:
         existing = self.spaces.get_space(space)
         return {"deleted": bool(existing and existing["deleted_at"]), "config": self.spaces.get_config(space)}
 
-    async def space_delete(self, space: str) -> list[str]:
+    async def space_delete(self, space: str) -> list[dict]:
         return self.spaces.delete_space(space)
 
     async def space_put_member(self, space: str, did: str, read: bool, write: bool) -> None:
@@ -179,28 +205,39 @@ class SpaceMethods:
         commit = self.spaces.apply_writes(did, space, [write], self._known_blob)
         return {"action": action, "write": write_result(write), "commit": self._commit_out(commit)}
 
-    async def space_get_record(self, space: str, collection: str, rkey: str) -> dict | None:
+    async def space_get_record(self, space: str, collection: str, rkey: str,
+                               key_share: str | None = None) -> dict | None:
         ref = parse_space(space)
         uri = ref.record_uri(self._did(), collection, rkey)
+        secret = self._mac_secret(key_share)
         record = self.spaces.get_record(uri)
-        return dict(record, uri=uri) if record else None
+        if not record:
+            return None
+        mac = compute_record_mac(secret, uri, CID.parse(record["cid"]).bytes) if secret else None
+        return dict(record, uri=uri, mac=mac)
 
     async def space_list_records(self, space: str, limit: int, cursor: str | None = None, reverse: bool = False,
                                  collection: str | None = None, exclude_values: bool = False) -> list[dict]:
         return self.spaces.list_records(space, limit, cursor, reverse, collection, exclude_values)
 
     async def space_list_repo_ops(self, space: str, limit: int, since: str | None = None, cursor: list | None = None,
-                                  exclude_values: bool = False) -> dict:
+                                  exclude_values: bool = False, key_share: str | None = None) -> dict:
+        """{ops, commit, mac}: a full page has no commit (and so no MAC); the last page does."""
+        self._mac_secret(key_share)  # a bad key share fails every page, as in the reference
         ops = self.spaces.list_repo_ops(space, limit, since, tuple(cursor) if cursor else None, exclude_values)
-        commit = None if len(ops) == limit else self.spaces.signed_commit(space, self._did(), self._keypair())
-        return {"ops": ops, "commit": commit}
+        head = None if len(ops) == limit else self._commit_with_mac(space, key_share)
+        return {"ops": ops, "commit": head and head["commit"], "mac": head and head["mac"]}
 
-    async def space_latest_commit(self, space: str) -> dict | None:
-        return self.spaces.signed_commit(space, self._did(), self._keypair())
+    async def space_latest_commit(self, space: str, key_share: str | None = None) -> dict | None:
+        """{commit, mac}, or None when the repo has never been written to."""
+        return self._commit_with_mac(space, key_share)
 
-    async def space_export_car(self, space: str, exclude_values: bool = False) -> bytes | None:
-        commit = self.spaces.signed_commit(space, self._did(), self._keypair())
-        return None if commit is None else self.spaces.export_car(space, commit, exclude_values)
+    async def space_export_star(self, space: str, key_share: str | None = None) -> dict | None:
+        """{data (a STAR archive), mac}, or None when the repo has never been written to."""
+        head = self._commit_with_mac(space, key_share)
+        if head is None:
+            return None
+        return {"data": self.spaces.export_star(space, head["commit"]), "mac": head["mac"]}
 
     async def space_list_blobs(self, space: str, limit: int, since: str | None = None,
                                cursor: str | None = None) -> list[str]:
@@ -224,6 +261,16 @@ class SpaceMethods:
     async def space_signing_key(self) -> str:
         return self._keypair().did()
 
+    async def space_kem_key(self, create: bool = False) -> str | None:
+        """The did:key of this account's #atproto_kem key; `create` makes one if it has none."""
+        private_key_hex = self.spaces.kem_key_hex()
+        if private_key_hex is None:
+            if not create:
+                return None
+            self.spaces.set_kem_key_hex(P256Keypair().export_hex())
+            private_key_hex = self.spaces.kem_key_hex()
+        return P256Keypair.import_hex(private_key_hex).did()
+
     # Write notifications owed to space hosts
 
     async def space_queue_notification(self, space: str, repo_rev: str, hash: bytes, attempts: int,
@@ -235,3 +282,15 @@ class SpaceMethods:
 
     async def space_due_notifications(self) -> list[dict]:
         return self.spaces.due_notifications(int(time.time() * 1000))
+
+    # Deletion notices owed to syncers of spaces this account deleted
+
+    async def space_queue_deletion_notice(self, space: str, service_did: str, attempts: int, retry_at: int,
+                                          expires_at: int) -> None:
+        self.spaces.queue_deletion_notice(space, service_did, attempts, retry_at, expires_at)
+
+    async def space_clear_deletion_notice(self, space: str, service_did: str) -> None:
+        self.spaces.clear_deletion_notice(space, service_did)
+
+    async def space_due_deletion_notices(self) -> list[dict]:
+        return self.spaces.due_deletion_notices(int(time.time() * 1000))

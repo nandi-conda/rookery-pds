@@ -95,6 +95,8 @@ def parse_token(token_type: str, jwt: str) -> tuple[dict, dict, bytes, bytes]:
         raise SpaceTokenError(f'wrong token type: expected "{spec["typ"]}", got "{header.get("typ")}"', "BadJwtType")
     if not isinstance(header.get("alg"), str) or not header["alg"]:
         raise SpaceTokenError('missing token "alg"')
+    if spec["kid"] and header.get("kid") != spec["kid"]:
+        raise SpaceTokenError(f'a {token_type} token\'s "kid" must be "{spec["kid"]}"')
     if not isinstance(payload.get("iss"), str) or not payload["iss"]:
         raise SpaceTokenError('missing token "iss"', "BadJwtIss")
     if not isinstance(payload.get("sub"), str) or not payload["sub"]:
@@ -120,7 +122,7 @@ def parse_token(token_type: str, jwt: str) -> tuple[dict, dict, bytes, bytes]:
 
 async def verify_token(token_type: str, jwt: str, get_signing_key, aud: str | None = None,
                        sub: str | None = None) -> tuple[dict, dict]:
-    """`await get_signing_key(iss, kid, force_refresh) -> did:key`."""
+    """`await get_signing_key(iss, force_refresh) -> did:key` (the issuer's #atproto key)."""
     header, payload, signing_input, signature = parse_token(token_type, jwt)
     now = int(time.time())
     if token_type == "credential" and payload["iat"] > now + CLOCK_SKEW_S:
@@ -133,10 +135,10 @@ async def verify_token(token_type: str, jwt: str, get_signing_key, aud: str | No
         raise SpaceTokenError("token subject does not match the requested space", "BadJwtSub")
     if header["alg"] not in ("ES256K", "ES256"):
         raise SpaceTokenError(f'unsupported token "alg": {header["alg"]}', "BadJwtSignature")
-    did_key = await get_signing_key(payload["iss"], header.get("kid"), False)
+    did_key = await get_signing_key(payload["iss"], False)
     if _signed_by(did_key, header["alg"], signing_input, signature):
         return header, payload
-    fresh = await get_signing_key(payload["iss"], header.get("kid"), True)
+    fresh = await get_signing_key(payload["iss"], True)
     if fresh != did_key and _signed_by(fresh, header["alg"], signing_input, signature):
         return header, payload
     raise SpaceTokenError("invalid token signature", "BadJwtSignature")

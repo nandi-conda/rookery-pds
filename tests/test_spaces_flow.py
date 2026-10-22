@@ -3,15 +3,19 @@
 
 """End to end through the app and the Durable Object RPC boundary: an owner
 creates a member-list space, a member writes to it, an app exchanges a
-delegation token for a space credential and syncs the member's repo."""
+delegation token for a space credential and syncs the member's repo, checking
+each commit and record against the MAC its response carries."""
+
+import json
 
 from human import call, human
-from roost import car, cbor
 from roost.cbor import CID
-from roost.encoding import b64_decode
-from roost.spaces.commit import verify_commit
-from roost.spaces.httpsig import P256Keypair, create_space_sig_headers
+from roost.encoding import b64_decode, b64url_decode
+from roost.keys import P256Keypair, Secp256k1Keypair
+from roost.spaces import mac
+from roost.spaces.httpsig import create_space_sig_headers
 from roost.spaces.lthash import LtHash
+from roost.spaces.star import read_repo_star
 
 FORUM = "com.example.forum"
 POST = "com.example.forum.post"
@@ -19,14 +23,34 @@ X = "/xrpc/com.atproto.space."
 S = "/xrpc/com.atproto.simplespace."
 
 
-async def credential_for(client, user, space, key, expect=200):
+async def credential_for(client, user, space, key, expect=200, **extra):
     token = (await call(client, "GET", f"{X}getDelegationToken?space={space}", user))["token"]
-    headers = create_space_sig_headers(key, f"Bearer {token}")
-    return await call(client, "POST", X + "getSpaceCredential", headers=headers, expect=expect, space=space)
+    return await call(client, "POST", X + "getSpaceCredential", expect=expect, space=space,
+                      credentialKid=key.did(), delegationToken=token, **extra)
 
 
 def signed(key, credential, audience):
-    return create_space_sig_headers(key, f"Atproto-Space {credential}", audience=audience)
+    return create_space_sig_headers(key, f"Atproto-Space-Credential {credential}", audience)
+
+
+def kem_key(env, did):
+    """The author's #atproto_kem key, as a syncer resolves it from the DID document."""
+    methods = env.plc.log[did][-1]["operation"]["verificationMethods"]
+    return methods["atproto_kem"]
+
+
+def want_mac(env, did, mac_type):
+    """(Atproto-Space-Want-Mac header, shared secret) for one request."""
+    key_share, secret = mac.encapsulate(kem_key(env, did))
+    return {mac.WANT_MAC_HEADER: mac.format_want_mac_header(mac_type, key_share)}, secret
+
+
+def jwt_part(part: str) -> dict:
+    return json.loads(b64url_decode(part))
+
+
+def lex_commit(value: dict) -> dict:
+    return {k: (b64_decode(v["$bytes"]) if isinstance(v, dict) else v) for k, v in value.items()}
 
 
 async def setup(client):
@@ -62,6 +86,9 @@ async def test_member_writes_and_app_syncs_with_credential(client, env):
     ])
     assert [r["$type"].rpartition("#")[2] for r in batch["results"]] == [
         "createResult", "updateResult", "createResult", "deleteResult"]
+    too_big = await call(client, "POST", X + "createRecord", bob, expect=400, space=space, repo=bob["did"],
+                         collection=POST, rkey="big", record={"text": "x" * (1024 * 1024)})
+    assert too_big["error"] == "InvalidRecord"
 
     # The app holds a P-256 key and trades bob's delegation token for a credential.
     key = P256Keypair()
@@ -72,68 +99,120 @@ async def test_member_writes_and_app_syncs_with_credential(client, env):
     writers = {repo["did"]: repo for repo in repos["repos"]}
     assert set(writers) == {alice["did"], bob["did"]}
 
-    # ...and the repo host serves bob's records, commit and CAR to the credential.
+    # ...and the repo host serves bob's records and commit, each with a MAC.
     bob_headers = signed(key, credential, bob["did"])
-    record = await call(client, "GET", f"{X}getRecord?space={space}&repo={bob['did']}&collection={POST}&rkey=hello",
-                        headers=bob_headers)
+    record_path = f"{X}getRecord?space={space}&repo={bob['did']}&collection={POST}&rkey=hello"
+    missing = await call(client, "GET", record_path, headers=bob_headers, expect=400)
+    assert missing["error"] == "BadSpaceMac"
+    wrong_type, _ = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    assert (await call(client, "GET", record_path, headers={**bob_headers, **wrong_type}, expect=400))["error"] \
+        == "BadSpaceMac"
+    want, secret = want_mac(env, bob["did"], mac.RECORD_MAC_TYPE)
+    response = await client.get(record_path, headers={**bob_headers, **want})
+    record = response.json()
     assert record["value"] == {"$type": POST, "text": "hi, edited"}
+    record_mac = mac.parse_mac_header(response.headers["atproto-space-mac"], mac.RECORD_MAC_TYPE)
+    assert record_mac == mac.compute_record_mac(secret, record["uri"], CID.parse(record["cid"]).bytes)
+    assert response.headers["vary"] == "Atproto-Space-Want-Mac"
+    assert "Atproto-Space-Mac" in response.headers["access-control-expose-headers"]
     listed = await call(client, "GET", f"{X}listRecords?space={space}&repo={bob['did']}", headers=bob_headers)
     assert sorted(r["rkey"] for r in listed["records"]) == ["hello", "two"]
 
-    latest = (await call(client, "GET", f"{X}getLatestCommit?space={space}&repo={bob['did']}",
-                         headers=bob_headers))["commit"]
-    commit = {k: (b64_decode(v["$bytes"]) if isinstance(v, dict) else v) for k, v in latest.items()}
-    bob_key = await env.account((await env.db.first("SELECT do_id FROM accounts WHERE did = ?",
-                                                     bob["did"]))["do_id"]).space_signing_key()
-    assert verify_commit(commit, space, bob["did"], commit["rev"], bob_key)
-    assert writers[bob["did"]]["hash"]["$bytes"] == latest["hash"]["$bytes"]
+    want, secret = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    response = await client.get(f"{X}getLatestCommit?space={space}&repo={bob['did']}", headers={**bob_headers, **want})
+    commit = lex_commit(response.json()["commit"])
+    assert set(commit) == {"ver", "repo", "space", "rev", "data"}
+    assert (commit["ver"], commit["repo"], commit["space"]) == (1, bob["did"], space)
+    assert mac.parse_mac_header(response.headers["atproto-space-mac"], mac.COMMIT_MAC_TYPE) \
+        == mac.compute_commit_mac(secret, commit)
+    assert b64_decode(writers[bob["did"]]["data"]["$bytes"]) == commit["data"]
     assert writers[bob["did"]]["repoRev"] == commit["rev"]
 
-    car_response = await call(client, "GET", f"{X}getRepo?space={space}&repo={bob['did']}", headers=bob_headers)
-    roots, blocks = car.read_car(car_response.body)
-    index = cbor.decode(blocks[roots[1]])
-    assert list(index) == [f"{POST}/two", f"{POST}/hello"]  # canonical: shorter keys first
+    want, secret = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    response = await client.get(f"{X}getRepo?space={space}&repo={bob['did']}", headers={**bob_headers, **want})
+    assert response.status == 200 and response.headers["content-type"] == "application/octet-stream"
+    meta, pairs = read_repo_star(response.body)
+    assert {k: v for k, v in meta.items() if k != "$type"} == commit
+    assert mac.parse_mac_header(response.headers["atproto-space-mac"], mac.COMMIT_MAC_TYPE) \
+        == mac.compute_commit_mac(secret, commit)
+    assert [path for path, _ in pairs] == [f"{POST}/hello", f"{POST}/two"]
     set_hash = LtHash()
-    for path, cid in index.items():
-        set_hash.add(f"{path}/{cid}")
-        assert CID.for_cbor(blocks[cid]) == cid
-    assert set_hash.digest() == commit["hash"]
+    for path, value in pairs:
+        set_hash.add(f"{path}/{CID.for_cbor(value)}")
+    assert set_hash.digest() == commit["data"]
 
-    ops = await call(client, "GET", f"{X}listRepoOps?space={space}&repo={bob['did']}", headers=bob_headers)
+    ops_path = f"{X}listRepoOps?space={space}&repo={bob['did']}"
+    want, _ = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    page = await client.get(ops_path + "&limit=2", headers={**bob_headers, **want})
+    assert "commit" not in page.json() and page.json()["cursor"] and "atproto-space-mac" not in page.headers
+    assert (await call(client, "GET", ops_path + "&limit=2", headers=bob_headers, expect=400))["error"] == "BadSpaceMac"
+    want, secret = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    response = await client.get(ops_path, headers={**bob_headers, **want})
+    ops = response.json()
     assert [(op["rkey"], op["prev"] is not None) for op in ops["ops"]] == [
         ("hello", False), ("two", False), ("hello", True), ("gone", False), ("gone", True)]
-    assert ops["commit"]["rev"] == commit["rev"]
+    assert lex_commit(ops["commit"]) == commit
+    assert mac.parse_mac_header(response.headers["atproto-space-mac"], mac.COMMIT_MAC_TYPE) \
+        == mac.compute_commit_mac(secret, commit)
     replay = LtHash()
     for op in ops["ops"]:
         if op["prev"]:
             replay.remove(f"{op['collection']}/{op['rkey']}/{op['prev']}")
         if op["cid"]:
             replay.add(f"{op['collection']}/{op['rkey']}/{op['cid']}")
-    assert replay.digest() == commit["hash"]
+    assert replay.digest() == commit["data"]
+
+    # bob reads his own data without a MAC unless he asks for one.
+    own = await client.get(f"{X}getLatestCommit?space={space}&repo={bob['did']}", headers=bob["auth"])
+    assert own.status == 200 and "atproto-space-mac" not in own.headers
+    want, secret = want_mac(env, bob["did"], mac.COMMIT_MAC_TYPE)
+    own = await client.get(f"{X}getLatestCommit?space={space}&repo={bob['did']}", headers={**bob["auth"], **want})
+    assert mac.parse_mac_header(own.headers["atproto-space-mac"], mac.COMMIT_MAC_TYPE) \
+        == mac.compute_commit_mac(secret, commit)
 
     # The credential is not the owner's: no credential reads another space or audience.
-    await call(client, "GET", f"{X}getRecord?space={space}&repo={bob['did']}&collection={POST}&rkey=hello",
-               headers=signed(key, credential, carol["did"]), expect=401)
-    await call(client, "GET", f"{X}getRecord?space={space}&repo={bob['did']}&collection={POST}&rkey=hello",
-               headers=signed(P256Keypair(), credential, bob["did"]), expect=401)
+    want, _ = want_mac(env, bob["did"], mac.RECORD_MAC_TYPE)
+    await call(client, "GET", record_path, headers={**signed(key, credential, carol["did"]), **want}, expect=401)
+    await call(client, "GET", record_path, headers={**signed(P256Keypair(), credential, bob["did"]), **want},
+               expect=401)
+    # The October 1 scheme is refused outright.
+    old = dict(bob_headers, authorization=f"Atproto-Space {credential}")
+    assert (await call(client, "GET", record_path, headers={**old, **want}, expect=400))["error"] == "InvalidToken"
     # Without a credential, only bob reads bob's repo.
-    await call(client, "GET", f"{X}getRecord?space={space}&repo={bob['did']}&collection={POST}&rkey=hello", carol,
-               expect=400)
+    await call(client, "GET", record_path, carol, expect=400)
     own = await call(client, "GET", f"{X}listSpaces", bob)
     assert own["spaces"] == [{"uri": space}]
 
 
-async def test_non_member_is_refused_and_delegation_is_single_use(client, env):
+async def test_credential_requests(client, env):
     alice, bob, carol, space = await setup(client)
     key = P256Keypair()
     refused = await credential_for(client, carol, space, key, expect=400)
     assert refused["error"] == "UserNotAuthorized"
 
     token = (await call(client, "GET", f"{X}getDelegationToken?space={space}", bob))["token"]
-    headers = create_space_sig_headers(key, f"Bearer {token}")
-    await call(client, "POST", X + "getSpaceCredential", headers=headers, space=space)
-    replayed = await call(client, "POST", X + "getSpaceCredential", headers=headers, expect=401, space=space)
-    assert replayed["error"] == "JwtReplayed"
+    request = {"space": space, "credentialKid": key.did(), "delegationToken": token}
+    await call(client, "POST", X + "getSpaceCredential", **request)
+    replayed = await call(client, "POST", X + "getSpaceCredential", expect=400, **request)
+    assert replayed["error"] == "InvalidDelegationToken"
+    garbage = await call(client, "POST", X + "getSpaceCredential", expect=400, **dict(request, delegationToken="x.y.z"))
+    assert garbage["error"] == "InvalidDelegationToken"
+    # A token for another space is refused; so is a key that is not P-256.
+    other = f"at://{alice['did']}/space/{FORUM}/other"
+    await call(client, "POST", S + "createSpace", alice, spaceType=FORUM, skey="other",
+               readPolicy={"$type": "com.atproto.simplespace.defs#memberListPolicy"},
+               writePolicy={"$type": "com.atproto.simplespace.defs#memberListPolicy"},
+               appAccess={"$type": "com.atproto.simplespace.defs#open"})
+    token = (await call(client, "GET", f"{X}getDelegationToken?space={other}", alice))["token"]
+    mismatched = await call(client, "POST", X + "getSpaceCredential", expect=400,
+                            **dict(request, delegationToken=token))
+    assert mismatched["error"] == "InvalidDelegationToken"
+    token = (await call(client, "GET", f"{X}getDelegationToken?space={space}", bob))["token"]
+    await call(client, "POST", X + "getSpaceCredential", expect=400,
+               **dict(request, credentialKid=Secp256k1Keypair.create().did(), delegationToken=token))
+    # Without a token a member-list space answers as though it does not exist.
+    hidden = await call(client, "POST", X + "getSpaceCredential", expect=400, space=space, credentialKid=key.did())
+    assert hidden["error"] == "SpaceNotFound"
 
     # carol's own PDS stores what she writes, but the space host does not sequence her.
     await call(client, "POST", X + "createRecord", carol, space=space, repo=carol["did"], collection=POST,
@@ -141,6 +220,16 @@ async def test_non_member_is_refused_and_delegation_is_single_use(client, env):
     credential = (await credential_for(client, bob, space, key))["credential"]
     repos = await call(client, "GET", f"{X}listRepos?space={space}", headers=signed(key, credential, alice["did"]))
     assert carol["did"] not in {repo["did"] for repo in repos["repos"]}
+
+
+async def test_delegation_tokens_name_the_authority_pds(client, env):
+    alice, bob, carol, space = await setup(client)
+    token = (await call(client, "GET", f"{X}getDelegationToken?space={space}", bob))["token"]
+    header, payload = (jwt_part(part) for part in token.split(".")[:2])
+    assert header["kid"] == "#atproto" and payload["aud"] == f"{alice['did']}#atproto_pds"
+    key = P256Keypair()
+    credential = (await credential_for(client, bob, space, key))["credential"]
+    assert jwt_part(credential.split(".")[0])["kid"] == "#atproto"
 
 
 async def test_owner_governance_and_delete(client, env):
@@ -155,16 +244,30 @@ async def test_owner_governance_and_delete(client, env):
                readPolicy={"$type": "com.atproto.simplespace.defs#publicPolicy"})
     key = P256Keypair()
     await credential_for(client, carol, space, key)  # public read now
+    # A public space issues credentials without a delegation token.
+    await call(client, "POST", X + "getSpaceCredential", space=space, credentialKid=key.did())
 
     await call(client, "POST", X + "createRecord", alice, space=space, repo=alice["did"], collection=POST,
                rkey="a", record={"text": "a"})
     await call(client, "POST", S + "deleteSpace", alice, space=space)
+    await call(client, "POST", S + "deleteSpace", alice, space=space)  # already gone: nothing to do
     gone = await credential_for(client, bob, space, key, expect=400)
     assert gone["error"] == "SpaceDeleted"
+    tokenless = await call(client, "POST", X + "getSpaceCredential", expect=400, space=space, credentialKid=key.did())
+    assert tokenless["error"] == "SpaceDeleted"
     write = await call(client, "POST", X + "createRecord", alice, expect=400, space=space, repo=alice["did"],
                        collection=POST, rkey="b", record={"text": "b"})
     assert write["error"] == "SpaceNotFound"
     assert (await call(client, "GET", f"{X}listSpaces", alice))["spaces"] == []
+
+    # The authority may recreate it; it is a new, empty space.
+    await call(client, "POST", S + "createSpace", alice, spaceType=FORUM, skey="general",
+               readPolicy={"$type": "com.atproto.simplespace.defs#publicPolicy"},
+               writePolicy={"$type": "com.atproto.simplespace.defs#publicPolicy"},
+               appAccess={"$type": "com.atproto.simplespace.defs#open"})
+    await call(client, "POST", X + "getSpaceCredential", space=space, credentialKid=key.did())
+    gone = await call(client, "GET", f"{X}getLatestCommit?space={space}&repo={alice['did']}", alice, expect=400)
+    assert gone["error"] == "RepoNotFound"
 
 
 async def test_space_blob_is_served_only_through_its_space(client, env):
