@@ -20,7 +20,9 @@ dev = { cmd = "uv run pywrangler dev", depends-on = ["install"] }
 cf-login = { cmd = "uv run pywrangler login", depends-on = ["install"] }
 cf-deploy = { cmd = "uv run pywrangler deploy -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # git pull, cf-deploy, then sync-identities (same as `just deploy`). Nested pixi runs pick up a pulled pixi.toml.
-deploy = { cmd = "git pull --ff-only && pixi run cf-deploy && pixi run sync-identities" }
+# The operator token is checked first, so a missing one stops the deploy before the Worker ships.
+deploy = { cmd = "git pull --ff-only && pixi run check-operator-token && pixi run cf-deploy && pixi run sync-identities" }
+check-operator-token = { cmd = "uv run python -c 'from migrate_host import operator_token; operator_token()'", cwd = "scripts", depends-on = ["install"] }
 # Generates OAUTH_NONCE_SECRET.
 cf-secrets = { cmd = "python3 -c \"import secrets; print(secrets.token_hex(32), end='')\" | uv run pywrangler secret put OAUTH_NONCE_SECRET -c wrangler.cloudflare.jsonc", depends-on = ["install"] }
 # Prompts for a Cloudflare API token (Zone · DNS · Edit on latha.org) so the Worker writes each handle's _atproto TXT record.
