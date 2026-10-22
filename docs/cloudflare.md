@@ -16,6 +16,11 @@ pixi run cf-deploy
 pixi run cf-secrets    # once: OAUTH_NONCE_SECRET
 ```
 
+After the first deploy, `just deploy` (or `pixi run deploy`) does the routine
+release in one step: `git pull --ff-only`, `pixi run cf-deploy`, then
+`pixi run sync-identities`, which skips DIDs already on the host and asks the
+relays to crawl it.
+
 Handles resolve over DNS: each needs a TXT record `_atproto.<handle>` =
 `"did=<did>"` in the latha.org zone, since `*.roost.latha.org` has no TLS
 certificate (Universal SSL covers only one level of subdomain, so an HTTPS
