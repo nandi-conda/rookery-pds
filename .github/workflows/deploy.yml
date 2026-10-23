@@ -1,0 +1,26 @@
+# Production deploy on every push to main: run the tests, then ship the Worker
+# (`pixi run cf-deploy`). sync-identities stays a local `just deploy` step so
+# the operator token never leaves the operator's machine.
+# Secret: CLOUDFLARE_API_TOKEN (see docs/cloudflare.md for its permissions).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 2612967e82750619224e7446c4c41b0b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+      - run: pixi run test
+      - run: pixi run cf-deploy

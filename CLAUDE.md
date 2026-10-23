@@ -57,7 +57,7 @@ DID/handle resolution, and DPoP are the trust boundary.
 ## Verification
 
 - Always run `uv run pytest -q` before committing — all tests must pass.
-- **No GitHub CI/CD — operator-driven only.** Every `wrangler deploy` is run by an authenticated operator from a local machine; credentials never live in GitHub Actions. Don't add a `.github/workflows/` deploy or test job.
+- **One deploy workflow.** `.github/workflows/deploy.yml` runs the tests and `pixi run cf-deploy` on every push to main, with the `CLOUDFLARE_API_TOKEN` secret. Only that token lives in GitHub Actions: the operator token stays on the operator's machine, so `sync-identities` and other operator scripts still run locally (`just deploy`). Don't add other workflows.
 
 ## File Headers
 

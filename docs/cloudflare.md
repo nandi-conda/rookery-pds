@@ -8,7 +8,7 @@ directory, R2 (`rookery-blobs`) blobs; wrangler creates the database and bucket
 by name on the first deploy. The firehose Durable Object uses WebSocket
 hibernation, so a relay holding `subscribeRepos` open costs nothing while idle.
 
-Deploys are operator-only, from a local checkout (`pixi run` installs Node and uv; `pywrangler` vendors the Python dependencies and proxies to wrangler):
+The first deploy is done by an operator from a local checkout (`pixi run` installs Node and uv; `pywrangler` vendors the Python dependencies and proxies to wrangler):
 
 ```sh
 pixi run cf-login      # once
@@ -20,6 +20,14 @@ After the first deploy, `just deploy` (or `pixi run deploy`) does the routine
 release in one step: `git pull --ff-only`, `pixi run cf-deploy`, then
 `pixi run sync-identities`, which skips DIDs already on the host and asks the
 relays to crawl it.
+
+Every push to main also deploys itself: `.github/workflows/deploy.yml` runs the
+tests, then `pixi run cf-deploy`. It reads the `CLOUDFLARE_API_TOKEN` secret (an
+org or repo Actions secret): a token from the **Edit Cloudflare Workers**
+template plus **Account · D1 · Edit**, scoped to the nandi account and the
+latha.org zone. CI does not run `sync-identities`, since that needs the
+operator token, so after a deploy that moves DIDs run it locally (or use
+`just deploy`, which does both).
 
 Handles resolve over DNS: each needs a TXT record `_atproto.<handle>` =
 `"did=<did>"` in the latha.org zone, since `*.roost.latha.org` has no TLS
