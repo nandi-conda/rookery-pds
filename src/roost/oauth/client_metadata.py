@@ -19,6 +19,7 @@ CACHE_TTL_S = 10 * 60
 DEFAULT_TIMEOUT_S = 10
 MAX_CLIENT_METADATA_BYTES = 64 * 1024
 CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+CLIENT_ASSERTION_MAX_AGE_S = 60
 
 
 class ClientMetadataError(ValueError):
@@ -272,15 +273,21 @@ async def verify_client_auth(metadata: dict, client_assertion_type: str | None, 
         raise ClientAuthError("client assertion subject mismatch")
     if payload.get("aud") != issuer:
         raise ClientAuthError("client assertion audience mismatch")
-    if not is_number(payload.get("exp")) or payload["exp"] <= now:
+    # Like @atproto/oauth-provider, exp is optional (RFC 7523 requires it, but atproto clients such as
+    # Streamplace's Go client omit it); a recent iat bounds the assertion's life instead.
+    exp = payload.get("exp")
+    if exp is not None and (not is_number(exp) or exp <= now):
         raise ClientAuthError("client assertion expired")
     if not is_number(payload.get("iat")):
         raise ClientAuthError("client assertion missing iat")
     if payload["iat"] > now + 60:
         raise ClientAuthError("client assertion iat is in the future")
+    if payload["iat"] < now - CLIENT_ASSERTION_MAX_AGE_S:
+        raise ClientAuthError("client assertion is too old")
     if not isinstance(payload.get("jti"), str) or not payload["jti"]:
         raise ClientAuthError("client assertion missing jti")
     jti_hash = sha256_b64url(f"client_assertion:{metadata['client_id']}:{payload['jti']}")
-    if not await insert_dpop_jti(db, jti_hash, payload["exp"], now):
+    jti_exp = exp if exp is not None else payload["iat"] + CLIENT_ASSERTION_MAX_AGE_S
+    if not await insert_dpop_jti(db, jti_hash, jti_exp, now):
         raise ClientAuthError("client assertion replayed jti")
     return {"method": "private_key_jwt", "client_id": metadata["client_id"]}

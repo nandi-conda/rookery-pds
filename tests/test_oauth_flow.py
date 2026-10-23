@@ -543,18 +543,23 @@ async def test_rook_cli_client_metadata_round_trips_through_par(client, env):
 
 # Client authentication
 
-def _assertion(key: EcKey, client_id: str, aud: str) -> str:
+def _assertion(key: EcKey, client_id: str, aud: str, **claims) -> str:
     now = int(time.time())
-    return key.jwt({"alg": "ES256", "kid": "client-key"}, {
-        "iss": client_id, "sub": client_id, "aud": aud, "exp": now + 300, "iat": now, "jti": unique("jti"),
-    })
+    payload = {"iss": client_id, "sub": client_id, "aud": aud, "exp": now + 300, "iat": now, "jti": unique("jti")}
+    payload.update(claims)
+    return key.jwt({"alg": "ES256", "kid": "client-key"}, {k: v for k, v in payload.items() if v is not None})
 
 
-async def test_valid_private_key_jwt_assertion(client, env):
-    client_id, key = new_client_id("private-key"), EcKey()
+def _private_key_client(env, name: str):
+    client_id, key = new_client_id(name), EcKey()
     serve_metadata(env, client_id, client_metadata(
         client_id, token_endpoint_auth_method="private_key_jwt", token_endpoint_auth_signing_alg="ES256",
         jwks={"keys": [dict(key.jwk, kid="client-key")]}))
+    return client_id, key
+
+
+async def test_valid_private_key_jwt_assertion(client, env):
+    client_id, key = _private_key_client(env, "private-key")
     await do_par(client, client_id, client_assertion_type=CLIENT_ASSERTION_TYPE,
                  client_assertion=_assertion(key, client_id, ORIGIN))
 
@@ -572,12 +577,36 @@ async def test_private_key_jwt_assertion_with_jwks_uri(client, env):
 
 
 async def test_private_key_jwt_assertion_with_bad_audience(client, env):
-    client_id, key = new_client_id("bad-aud"), EcKey()
-    serve_metadata(env, client_id, client_metadata(
-        client_id, token_endpoint_auth_method="private_key_jwt", token_endpoint_auth_signing_alg="ES256",
-        jwks={"keys": [dict(key.jwk, kid="client-key")]}))
+    client_id, key = _private_key_client(env, "bad-aud")
     await par_rejected(client, client_id, "invalid_client", 401, client_assertion_type=CLIENT_ASSERTION_TYPE,
                        client_assertion=_assertion(key, client_id, "https://wrong.example"))
+
+
+async def test_private_key_jwt_assertion_without_exp(client, env):
+    # Streamplace's Go client (streamplace/atproto-oauth-golang) sends iss/sub/aud/jti/iat and no exp.
+    client_id, key = _private_key_client(env, "no-exp")
+    await do_par(client, client_id, client_assertion_type=CLIENT_ASSERTION_TYPE,
+                 client_assertion=_assertion(key, client_id, ORIGIN, exp=None))
+
+
+async def test_private_key_jwt_assertion_without_exp_is_single_use(client, env):
+    client_id, key = _private_key_client(env, "no-exp-replay")
+    assertion = _assertion(key, client_id, ORIGIN, exp=None)
+    await do_par(client, client_id, client_assertion_type=CLIENT_ASSERTION_TYPE, client_assertion=assertion)
+    await par_rejected(client, client_id, "invalid_client", 401, client_assertion_type=CLIENT_ASSERTION_TYPE,
+                       client_assertion=assertion)
+
+
+async def test_private_key_jwt_assertion_with_stale_iat(client, env):
+    client_id, key = _private_key_client(env, "stale-iat")
+    await par_rejected(client, client_id, "invalid_client", 401, client_assertion_type=CLIENT_ASSERTION_TYPE,
+                       client_assertion=_assertion(key, client_id, ORIGIN, exp=None, iat=int(time.time()) - 120))
+
+
+async def test_private_key_jwt_assertion_expired(client, env):
+    client_id, key = _private_key_client(env, "expired")
+    await par_rejected(client, client_id, "invalid_client", 401, client_assertion_type=CLIENT_ASSERTION_TYPE,
+                       client_assertion=_assertion(key, client_id, ORIGIN, exp=int(time.time()) - 1))
 
 
 async def test_metadata_client_id_mismatch_for_none_clients(client, env):
